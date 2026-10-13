@@ -148,7 +148,11 @@ CLI commands use the same workflows.
 ## What you can analyze
 
 REA requires Node.js 22.x (>=22.19), 24.x (>=24.11), or 26+, plus npm.
-Additional tools and host support depend on the target:
+Additional tools and host support depend on the target. On Linux, a
+`procps`-compatible `ps` must also be on `PATH`: owned provider launches call it for
+process ownership inspection, so minimal images such as `ubuntu:24.04`, which omit
+`procps`, fail JavaScript/Electron analysis with `capability_unavailable` until it is
+installed.
 
 | Target                 | What REA returns                                                                     | Requirements and guide                                                                                                                |
 | ---------------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
