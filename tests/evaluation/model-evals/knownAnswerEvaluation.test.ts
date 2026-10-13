@@ -697,6 +697,16 @@ describe("successful Evidence grounding", () => {
     ).toBe("passed");
   });
 
+  it("rejects Evidence carried by a completed call with a client-side error", () => {
+    const evidence = createObservation();
+    const event = delivered(evidence, {
+      result: { ...resultFor(evidence), error: { code: "client_error" } },
+    });
+    expect(
+      assess([event], answer([claimFor(evidence)])).factualCorrectness,
+    ).toBe("failed");
+  });
+
   it("grades a complete text-only production Evidence response", () => {
     const evidence = createObservation();
     const event = delivered(evidence, {
