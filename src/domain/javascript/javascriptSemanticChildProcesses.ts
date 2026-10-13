@@ -8,9 +8,14 @@ import type {
   JavaScriptSemanticChildProcessSpawn,
 } from "./javascriptSemanticIr.js";
 import { semanticCallableIdForNode } from "./javascriptSemanticProjection.js";
-import { semanticStaticPropertyName } from "./javascriptAstValues.js";
 import {
+  semanticStaticPropertyName,
+  unwrapJavaScriptExpression,
+} from "./javascriptAstValues.js";
+import {
+  isUnshadowedGlobal,
   resolveSemanticBindingState,
+  semanticResolutionBlocked,
   type JavaScriptSemanticAnalysisState,
   type JavaScriptSemanticBindingState,
 } from "./javascriptSemanticState.js";
@@ -222,9 +227,7 @@ const childInteraction = (
       .sort(compareUnicodeCodePoints),
     eventName: kind === "listener" ? eventName : null,
     signalName:
-      kind === "signal"
-        ? (dataEffectLiteralString(node.arguments[0]) ?? "SIGTERM")
-        : null,
+      kind === "signal" ? killSignalName(node.arguments, state) : null,
     listenerLocation:
       kind === "listener" && t.isNode(listener) ? range(listener) : null,
     resolution:
@@ -235,6 +238,23 @@ const childInteraction = (
         ? "complete"
         : "partial",
   };
+};
+
+// Only an omitted argument or the unshadowed global undefined selects the
+// SIGTERM default; an unresolved argument leaves the signal unknown.
+const killSignalName = (
+  args: t.CallExpression["arguments"],
+  state: JavaScriptSemanticAnalysisState,
+): string | null => {
+  const [signal] = args;
+  if (signal === undefined) return "SIGTERM";
+  const expression = unwrapJavaScriptExpression(signal).node;
+  if (
+    t.isUnaryExpression(expression, { operator: "void" }) ||
+    isUnshadowedGlobal(expression, state, "undefined")
+  )
+    return "SIGTERM";
+  return dataEffectLiteralString(signal);
 };
 
 const classifyInteraction = (
