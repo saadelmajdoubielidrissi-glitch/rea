@@ -18,6 +18,8 @@ import {
 import type { JsonValue } from "../domain/jsonValue.js";
 import type { UnknownRegistryPort } from "./investigation/InvestigationRecordPort.js";
 import { UnknownRegistryError } from "../domain/unknownRegistryError.js";
+import { nativeApiInspectionResultSchema } from "../domain/native/nativeApiBoundary.js";
+import { nativeValueTraceSchema } from "../domain/native/nativeValueTrace.js";
 
 /** Build the shared Evidence record for a successful composed binary workflow. */
 export const createWorkflowEvidence = (input: {
@@ -40,11 +42,64 @@ export const createWorkflowEvidence = (input: {
           ),
         }),
     confidence: "derived",
-    limitations: ["Derived by an REA composed workflow."],
+    limitations: [
+      "Derived by an REA composed workflow.",
+      ...nativeWorkflowLimitations(input.operation, input.result),
+    ],
     ...(input.operation === "batch_decompile"
       ? { locations: batchProcedureLocations(input.result) }
       : {}),
   });
+
+const nativeWorkflowLimitations = (
+  operation: AnalysisOperation,
+  result: JsonValue,
+): readonly string[] => {
+  if (operation === "batch_decompile") return batchProcedureLimitations(result);
+  if (operation === "inspect_native_api") {
+    const parsed = nativeApiInspectionResultSchema.safeParse(result);
+    return parsed.success ? parsed.data.limitations : [];
+  }
+  if (operation === "trace_native_values") {
+    const parsed = nativeValueTraceSchema.safeParse(result);
+    return parsed.success ? parsed.data.limitations : [];
+  }
+  return [];
+};
+
+const batchProcedureLimitations = (result: JsonValue): string[] => {
+  if (
+    result === null ||
+    typeof result !== "object" ||
+    Array.isArray(result) ||
+    !Array.isArray(result.items)
+  )
+    return [];
+  const limitations: string[] = [];
+  for (const item of result.items) {
+    if (
+      item === null ||
+      typeof item !== "object" ||
+      Array.isArray(item) ||
+      typeof item.address !== "string" ||
+      !Array.isArray(item.limitations)
+    )
+      continue;
+    const procedure = item.procedure;
+    const address =
+      procedure !== null &&
+      typeof procedure === "object" &&
+      !Array.isArray(procedure) &&
+      procedure.status === "resolved" &&
+      typeof procedure.address === "string"
+        ? procedure.address
+        : item.address;
+    for (const limitation of item.limitations)
+      if (typeof limitation === "string")
+        limitations.push(`${address}: ${limitation}`);
+  }
+  return [...new Set(limitations)];
+};
 
 const batchProcedureLocations = (result: JsonValue): EvidenceLocation[] => {
   if (

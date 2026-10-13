@@ -30,6 +30,10 @@ const parentFields = (
   const flow = dossier.native_value_flow;
   const api = dossier.native_api;
   const unknowns: string[] = [];
+  if (dossier.decompiler_completeness?.status === "warnings")
+    unknowns.push(
+      "Decompiler warnings were reported; inspect the decompiler_completeness facet and original instructions before drawing control-flow conclusions.",
+    );
   if (flow === null) unknowns.push("native_value_flow was not recorded");
   else if (!flow.available)
     unknowns.push("native_value_flow unavailable: " + flow.reason);
@@ -63,7 +67,11 @@ const nativeRows = (
   dossier: FunctionDossier,
   facet: Exclude<
     Extract<AnalysisViewRequest, { readonly kind: "native" }>["facet"],
-    "procedure" | "pseudocode" | "native_api" | "value_flow_summary"
+    | "procedure"
+    | "pseudocode"
+    | "decompiler_completeness"
+    | "native_api"
+    | "value_flow_summary"
   >,
 ): readonly unknown[] | undefined => {
   const sourceFlow = dossier.native_value_flow;
@@ -137,12 +145,22 @@ export const projectNativeFunctionView = (
   const flow = dossier.native_value_flow;
   if (
     view.facet === "procedure" ||
+    view.facet === "decompiler_completeness" ||
     view.facet === "native_api" ||
     view.facet === "value_flow_summary"
   ) {
     if (view.offset !== 0)
       return err(viewError("Singleton native facets require offset 0."));
     if (view.facet === "procedure") return ok(singleton(dossier.procedure));
+    if (view.facet === "decompiler_completeness")
+      return ok(
+        singleton(
+          dossier.decompiler_completeness ?? {
+            available: false,
+            reason: "Decompiler warning observations were not recorded.",
+          },
+        ),
+      );
     if (view.facet === "native_api")
       return ok(
         singleton(

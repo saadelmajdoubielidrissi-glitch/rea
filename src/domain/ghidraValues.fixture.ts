@@ -156,6 +156,15 @@ export const ghidraFunctionDossier = (includeAssembly = true): JsonValue => {
       locals: [],
     },
     pseudocode,
+    decompiler_completeness: {
+      status: "no-warnings-reported",
+      provenance: "ghidra-decompiler-warning-observations",
+      warning_count: 0,
+      warnings: [],
+      diagnostic: null,
+      dropped_blocks: [],
+      disassembly_available: includeAssembly,
+    },
     assembly: includeAssembly
       ? ["0x401000: CALL 0x401020", "0x401005: RET"]
       : [],

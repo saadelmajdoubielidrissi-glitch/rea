@@ -272,7 +272,7 @@ export class EnhancedTools {
               status: "unknown" as const,
               error: projectAnalysisError(resolved.error),
             };
-        const result = await this.#call(
+        const result = await this.#observe(
           "procedure_pseudo_code",
           { procedure: resolved.ok ? resolved.value : address },
           signal,
@@ -284,8 +284,10 @@ export class EnhancedTools {
             procedure,
             status: "error" as const,
             error: projectAnalysisError(result.error),
+            limitations: [],
           };
-        if (typeof result.value !== "string" || result.value.length === 0)
+        const { result: pseudocode, limitations } = result.value;
+        if (typeof pseudocode !== "string" || pseudocode.length === 0)
           return {
             address,
             procedure,
@@ -296,12 +298,14 @@ export class EnhancedTools {
                 "provider returned empty pseudocode",
               ),
             ),
+            limitations: [...limitations],
           };
         return {
           address,
           procedure,
           status: "ok" as const,
-          pseudocode: result.value,
+          pseudocode,
+          limitations: [...limitations],
         };
       }),
     );

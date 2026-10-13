@@ -78,6 +78,13 @@ const facetLimitations = (
   snapshot: FunctionSnapshot,
   dimension: DimensionName,
 ): string[] => {
+  if (
+    dimension === "pseudocode" &&
+    snapshot.dossier.decompiler_completeness?.status === "warnings"
+  )
+    return [
+      "Decompiler warnings prevent a complete pseudocode comparison; inspect the original instructions.",
+    ];
   const { dossier } = snapshot;
   const fields = {
     identity: [],

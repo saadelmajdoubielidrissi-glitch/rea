@@ -26,6 +26,7 @@ import {
 } from "../domain/jsonValue.js";
 import { nativeApiBoundarySchema } from "../domain/native/nativeApiBoundary.js";
 import { nativeValueFlowSchema } from "../domain/native/nativeValueFlow.js";
+import { decompilerCompletenessSchema } from "../domain/native/decompilerCompleteness.js";
 import type { EvidenceLocation } from "../domain/evidence.js";
 import { err, ok, type Result } from "../domain/result.js";
 import { analysisInputErrorFromIssues } from "../domain/inputIssueProjection.js";
@@ -290,6 +291,11 @@ const ghidraFunctionDossier = functionDossierSchema
     }),
     native_api: ghidraNativeApiBoundary,
     native_value_flow: ghidraNativeValueFlow,
+    decompiler_completeness: decompilerCompletenessSchema.refine(
+      ({ provenance }) =>
+        provenance === "ghidra-decompiler-warning-observations",
+      "Ghidra warning observations require Ghidra producer provenance",
+    ),
   })
   .strict()
   .superRefine((value, context) => {
@@ -304,6 +310,9 @@ const ghidraFunctionDossier = functionDossierSchema
       });
     const addresses = [
       value.procedure.address,
+      ...value.decompiler_completeness.dropped_blocks.flatMap(({ start }) =>
+        start === null ? [] : [start],
+      ),
       ...value.comments.map(({ address }) => address),
       ...value.callers.map(({ address }) => address),
       ...value.callees.map(({ address }) => address),

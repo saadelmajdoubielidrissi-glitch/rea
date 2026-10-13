@@ -18,11 +18,12 @@ export const workflowAnalysisProfile = (
 ): AnalysisProfileCommitment =>
   createAnalysisProfile(REA_WORKFLOW_PROVIDER, {
     upstream_analysis_profile: upstream,
-    ...(operation === "binary_overview"
+    ...(operation === "binary_overview" ||
+    operation === "inspect_native_api" ||
+    operation === "trace_native_values" ||
+    operation === "batch_decompile"
       ? { workflow_revision: 3 }
-      : operation === "batch_decompile" ||
-          operation === "get_call_graph" ||
-          operation === "trace_feature"
+      : operation === "get_call_graph" || operation === "trace_feature"
         ? { workflow_revision: 2 }
         : {}),
   });

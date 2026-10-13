@@ -149,6 +149,30 @@ overview merely because its source artifact is unchanged.
 | P-code value flow       | Function dossiers include up to 3,000 high-p-code operations, at most 64 inputs per operation, and 12,000 def-use edges. Results identify memory reads/writes, branches, and calls by p-code opcode, and mark decompiler-dead operations. Large results report truncation, an omitted-operation lower bound, and known omitted-input/edge counts. The dossier is an intra-function graph; `trace_native_values` composes derived parameter/argument and return/output dependencies across resolved calls. It does not resolve memory aliasing, call side effects, runtime behavior, persistent state, or business meaning. |
 | Result extent           | Function instruction scans and native API boundary observations remain complete. P-code flow is the explicit bounded exception; its count fields distinguish exact retained counts from lower-bound or known-omitted counts. Caller cancellation and provider failures remain distinct.                                                                                                                                                                                                                                                                                                                                    |
 
+Function dossiers include `decompiler_completeness`: reported warning comments,
+warning count, the decompiler diagnostic, dropped-block start addresses and
+Listing disassembly availability. A reported removed block retains its original
+address space; its end remains `null` because the warning does not establish an
+extent. These are observations of Ghidra's warnings, not independent proof of
+unreachable code. `no-warnings-reported` does not establish complete recovery.
+Pseudocode reads retain warnings in Evidence limitations. Compact native views
+expose the `decompiler_completeness` facet and keep a warning notice on paged
+pseudocode. Missing observations in older or other-provider Evidence remain
+unavailable. Function comparisons keep warned pseudocode unresolved, while
+independently available assembly remains comparable.
+
+Rendered pseudocode excludes authored PRE, EOL, POST, PLATE and header comments
+before classifying automatic Ghidra warnings. Authored annotations remain in the
+dossier's separate `comments` field and annotation readback; warning-shaped text
+there cannot create a dropped-block observation. Native API inspection and value
+traces preserve decompiler warnings/diagnostics as inline unknowns and limitations,
+including reached callees, and the composed workflow Evidence retains them.
+Batch decompilation also preserves provider limitations on each item, including
+empty-output failures, and qualifies its Evidence with the observed procedure
+address (or original selector when procedure identity is unavailable). The shared
+completeness contract retains producer provenance without requiring a particular
+engine; the Ghidra adapter validates its own producer identifier.
+
 Function extents and instruction completeness refer to Ghidra's analyzed body.
 An inferred no-return call can terminate that body before subsequent bytes.
 Pseudocode, assembly, procedure info, instruction windows, callee and caller

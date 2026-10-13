@@ -60,6 +60,52 @@ const nativeParent = (
   artifact: { path: "/fixtures/example.exe", sha256: "a".repeat(64) },
 });
 
+it("retains warning status in paged pseudocode and exposes exact completeness facts", () => {
+  const dossier = functionDossierSchema.parse(ghidraFunctionDossier());
+  dossier.decompiler_completeness = {
+    status: "warnings",
+    provenance: "ghidra-decompiler-warning-observations",
+    warning_count: 1,
+    warnings: ["Removing unreachable block (ram,0x00401008)"],
+    diagnostic: null,
+    dropped_blocks: [
+      {
+        start: "0x401008",
+        end: null,
+        address_space: "ram",
+        reason: "unreachable",
+        warning_index: 0,
+      },
+    ],
+    disassembly_available: true,
+  };
+  for (const facet of ["pseudocode", "decompiler_completeness"] as const) {
+    const result = projectAnalysisView(nativeParent(dossier), {
+      kind: "native",
+      facet,
+      offset: 0,
+      limit: 4,
+    });
+    if (!result.ok) throw result.error;
+    expect(result.value.unknowns).toContainEqual(
+      expect.stringContaining("Decompiler warnings"),
+    );
+    if (facet === "decompiler_completeness")
+      expect(result.value).toMatchObject({
+        item: dossier.decompiler_completeness,
+      });
+  }
+  delete dossier.decompiler_completeness;
+  const legacy = projectAnalysisView(nativeParent(dossier), {
+    kind: "native",
+    facet: "decompiler_completeness",
+    offset: 0,
+    limit: 64,
+  });
+  if (!legacy.ok) throw legacy.error;
+  expect(legacy.value).toMatchObject({ item: { available: false } });
+});
+
 it("projects native procedure and bounded assembly and high-pcode with exact parent identity", () => {
   const parent = nativeParent();
   const procedure = projectAnalysisView(parent, {

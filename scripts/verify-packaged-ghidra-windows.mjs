@@ -180,6 +180,7 @@ const scriptCollisions = [
   "ReaGhidraAnalysisOptions.java",
   "ReaGhidraApplySeeds.java",
   "ReaGhidraBridge.java",
+  "ReaGhidraDecompilerWarnings.java",
   "ReaGhidraNoReturnFix.java",
   "ReaGhidraPrepareCom.java",
   "ReaGhidraPrepareRaw.java",

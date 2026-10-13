@@ -5,6 +5,8 @@ import { promisify } from "node:util";
 const exec = promisify(execFile);
 const packedHopperBridge = "package/bridge/hopper_bridge.py";
 const packedGhidraBridge = "package/bridge/ghidra/ReaGhidraBridge.java";
+const packedGhidraWarnings =
+  "package/bridge/ghidra/ReaGhidraDecompilerWarnings.java";
 const packedGhidraActivator =
   "package/bridge/ghidra/ReaGhidraBundleActivator.java";
 
@@ -13,6 +15,7 @@ export async function verifyPackedBridge({ workspace, tarball, packedFiles }) {
   for (const path of [
     packedHopperBridge,
     packedGhidraBridge,
+    packedGhidraWarnings,
     packedGhidraActivator,
   ]) {
     if (!packedFiles.includes(path)) throw new Error(`package omitted ${path}`);

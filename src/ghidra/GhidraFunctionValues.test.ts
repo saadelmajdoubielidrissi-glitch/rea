@@ -44,6 +44,62 @@ const parseFunctionValueFixture = (
 };
 
 describe("Ghidra function-analysis result values", () => {
+  it("keeps Ghidra producer provenance validation at the adapter boundary", () => {
+    const dossier = functionDossierSchema.parse(ghidraFunctionDossier());
+    const foreign = functionDossierSchema.parse({
+      ...dossier,
+      decompiler_completeness: {
+        ...dossier.decompiler_completeness,
+        provenance: "independent-warning-producer",
+      },
+    });
+    expect(
+      parseFunctionValueFixture(
+        "analyze_function",
+        jsonValueSchema.parse(foreign),
+      ),
+    ).toMatchObject({ ok: false });
+  });
+  it("preserves decompiler warning locations and rejects inconsistent counts", () => {
+    const dossier = functionDossierSchema.parse(ghidraFunctionDossier());
+    dossier.decompiler_completeness = {
+      status: "warnings",
+      provenance: "ghidra-decompiler-warning-observations",
+      warning_count: 1,
+      warnings: ["Removing unreachable block (ram,0x00401008)"],
+      diagnostic: null,
+      dropped_blocks: [
+        {
+          start: "0x401008",
+          end: null,
+          address_space: "ram",
+          reason: "unreachable",
+          warning_index: 0,
+        },
+      ],
+      disassembly_available: true,
+    };
+    const parsed = parseFunctionValueFixture(
+      "analyze_function",
+      jsonValueSchema.parse(dossier),
+    );
+    if (!parsed.ok) throw parsed.error;
+    expect(parsed.value).toMatchObject({
+      decompiler_completeness: dossier.decompiler_completeness,
+    });
+    expect(
+      parseFunctionValueFixture(
+        "analyze_function",
+        jsonValueSchema.parse({
+          ...dossier,
+          decompiler_completeness: {
+            ...dossier.decompiler_completeness,
+            warning_count: 2,
+          },
+        }),
+      ),
+    ).toMatchObject({ ok: false });
+  });
   it("preserves file-offset resolution in Evidence locations and rejects inexact offsets", () => {
     const selection = {
       file_offset: 0x210,

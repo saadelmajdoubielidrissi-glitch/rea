@@ -171,6 +171,35 @@ const keepsGeneratedNamesAmbiguous = (): void => {
   expect(stable.status).toBe("changed");
 };
 
+it("keeps identical pseudocode unresolved when the decompiler reported omissions", () => {
+  const value = dossier("return 7;", "0x1000");
+  value.decompiler_completeness = {
+    status: "warnings",
+    provenance: "ghidra-decompiler-warning-observations",
+    warning_count: 1,
+    warnings: ["Removing unreachable block (ram,0x1010)"],
+    diagnostic: null,
+    dropped_blocks: [
+      {
+        start: "0x1010",
+        end: null,
+        address_space: "ram",
+        reason: "unreachable",
+        warning_index: 0,
+      },
+    ],
+    disassembly_available: true,
+  };
+  const evidence = observe("a", value, "ghidra");
+  const result = compareFunctions(evidence, evidence);
+  expect(
+    result.dimensions.find((item) => item.dimension === "pseudocode"),
+  ).toMatchObject({ status: "unknown" });
+  expect(
+    result.dimensions.find((item) => item.dimension === "assembly"),
+  ).toMatchObject({ status: "unchanged" });
+});
+
 describe("function comparison normalized identity", () => {
   it("retains unresolved call details alongside missing facet coverage", () => {
     const value: Record<string, unknown> = {
