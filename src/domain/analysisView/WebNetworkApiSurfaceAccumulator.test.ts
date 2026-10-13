@@ -26,6 +26,22 @@ const add = (
   if (!result.ok) throw result.error;
 };
 
+it("reserves query name expansion before retaining a group", () => {
+  const sample = record(
+    0,
+    "/items?" + Array.from({ length: 120 }, (_, i) => `p${i}=v`).join("&"),
+  );
+  const plain = new WebNetworkApiSurfaceAccumulator(64 * 1024);
+  add(plain, sample);
+  expect(plain.page(0, 1).groups).toHaveLength(1);
+  const selected = new WebNetworkApiSurfaceAccumulator(64 * 1024);
+  expect(selected.add(sample, true)).toMatchObject({
+    ok: false,
+    error: { _tag: "AnalysisResourceConstraintError" },
+  });
+  expect(selected.page(0, 1).groups).toEqual([]);
+});
+
 it("admits the capture schema clone and grouping against the same budget", () => {
   const sample = record(0, `/${"a".repeat(1200)}`);
   const isolated = new WebNetworkApiSurfaceAccumulator(64 * 1024);

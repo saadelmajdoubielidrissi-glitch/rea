@@ -10,6 +10,7 @@ const project = (
   offset = 0,
   limit = 50,
   parameters: unknown = { sensitive_value_count: 0 },
+  includeQueryNames?: boolean,
 ) => {
   const parent = analysisViewCaptureEvidence(capture);
   return projectAnalysisView(
@@ -20,9 +21,61 @@ const project = (
       limitations: [],
       parameters,
     },
-    { kind: "api-surface", offset, limit },
+    {
+      kind: "api-surface",
+      offset,
+      limit,
+      ...(includeQueryNames === undefined
+        ? {}
+        : { include_query_parameter_names: includeQueryNames }),
+    },
   );
 };
+
+it("opts into distinct decoded query names with exact source ordinals and no values", () => {
+  const capture = analysisViewCaptureFixture();
+  capture.records = capture.records.slice(0, 2);
+  capture.total_records = 2;
+  const urls = [
+    "https://api.test/items/1?alpha=VALUE_ONLY&repeat=a&repeat=b&=empty&space+name=x&plus%2Bname=y&%61lpha=z&percent%2520=x&encoded%E9%9B%AA=y#fragment_only=1",
+    "https://api.test/items/2?beta=VALUE_ONLY&repeat=c&space%20name=z&plus%2bname=w",
+  ];
+  for (const [index, url] of urls.entries())
+    capture.records[index]!.reported = {
+      request: { method: "GET", url },
+      response: { status: 200, content: { mimeType: "application/json" } },
+    };
+  const legacy = project(capture);
+  if (!legacy.ok || legacy.value.kind !== "api-surface")
+    throw new Error("Expected surface");
+  expect(legacy.value.view).toEqual({
+    kind: "api-surface",
+    offset: 0,
+    limit: 50,
+  });
+  expect(legacy.value.groups[0]).not.toHaveProperty("query_parameter_names");
+  const selected = project(capture, 0, 1, { sensitive_value_count: 0 }, true);
+  if (!selected.ok || selected.value.kind !== "api-surface")
+    throw new Error("Expected query names");
+  expect(selected.value.groups[0]!.query_parameter_names).toEqual([
+    { name: "", record_ordinals: [0] },
+    { name: "alpha", record_ordinals: [0] },
+    { name: "beta", record_ordinals: [1] },
+    { name: "encoded雪", record_ordinals: [0] },
+    { name: "percent%20", record_ordinals: [0] },
+    { name: "plus+name", record_ordinals: [0, 1] },
+    { name: "repeat", record_ordinals: [0, 1] },
+    { name: "space name", record_ordinals: [0, 1] },
+  ]);
+  expect(JSON.stringify(selected.value)).not.toContain("VALUE_ONLY");
+  expect(JSON.stringify(selected.value)).not.toContain("fragment_only");
+  expect(
+    project(capture, 0, 1, { sensitive_value_count: 1 }, true),
+  ).toMatchObject({
+    ok: false,
+    error: { _tag: "AnalysisUnsupportedTargetError" },
+  });
+});
 it("groups only exact formats, preserves literal routes, excludes URLs and produces deterministic digests", () => {
   const result = project();
   if (!result.ok || result.value.kind !== "api-surface")

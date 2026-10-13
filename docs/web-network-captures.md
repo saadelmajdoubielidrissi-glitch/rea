@@ -224,6 +224,17 @@ are 0 and 50. The view groups request lines by method, WHATWG URL origin and
 path template, sorted by origin, template and method. Query strings, fragments,
 credentials, headers and bodies are not copied into groups.
 
+Set `include_query_parameter_names: true` in the view to include
+`query_parameter_names` in each group. Each entry contains a decoded `name` and
+the parent `record_ordinals` that observed it. Names are deduplicated per record
+and sorted by Unicode code point. Percent escapes are decoded once; `+` becomes
+a space while `%2B` remains a plus. Empty names are retained. Parameter values
+are never copied into this inventory, and fragments are ignored. The default
+view omits this inventory. These observations do not establish a required
+parameter or an API schema; the complete recorded URLs remain in parent Evidence.
+The inventory shares the view's resource budget and may return a resource
+constraint error when its expansion exceeds that budget.
+
 | Rule       | Exact segment format                                 | Placeholder  |
 | ---------- | ---------------------------------------------------- | ------------ |
 | `numeric`  | ASCII digits only                                    | `{numeric}`  |

@@ -15,6 +15,12 @@ export const apiSurfaceViewSchema = z.strictObject({
   kind: z.literal("api-surface"),
   offset: z.number().int().nonnegative().default(0),
   limit: z.number().int().positive().default(50),
+  include_query_parameter_names: z
+    .boolean()
+    .optional()
+    .describe(
+      "Include distinct observed query names with source record ordinals; no values, required parameters or server schema are inferred.",
+    ),
 });
 const ruleSchema = z.enum(["numeric", "uuid", "hex", "iso-date"]);
 const groupSchema = z.strictObject({
@@ -32,6 +38,14 @@ const groupSchema = z.strictObject({
   record_ordinals: z.array(z.number().int().nonnegative()),
   statuses: z.array(z.number()),
   content_types: z.array(z.string()),
+  query_parameter_names: z
+    .array(
+      z.strictObject({
+        name: z.string(),
+        record_ordinals: z.array(z.number().int().nonnegative()),
+      }),
+    )
+    .optional(),
   flags: z.array(
     z.enum(["single-sample", "mixed-statuses", "mixed-content-types"]),
   ),
@@ -119,7 +133,10 @@ export const projectWebNetworkApiSurfaceView = (
   ]);
   if (!limitations.ok) return limitations;
   for (const record of capture.records) {
-    const added = accumulator.add(record);
+    const added = accumulator.add(
+      record,
+      view.include_query_parameter_names === true,
+    );
     if (!added.ok) return added;
   }
   const page = accumulator.page(view.offset, view.limit);
