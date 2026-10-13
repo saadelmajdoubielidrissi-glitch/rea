@@ -183,11 +183,17 @@ const inspectCall = (
       accumulator,
     });
   }
-  const endpoint = endpointArgument(
-    name,
-    node.arguments,
-    node.callee,
-    openReceiverFacts.get(node.start ?? -1),
+  const receiverFact = openReceiverFacts.get(node.start ?? -1);
+  const endpoint = stringValue(
+    endpointArgument(
+      {
+        name,
+        args: node.arguments,
+        callee: node.callee,
+        ...(receiverFact === undefined ? {} : { receiverFact }),
+      },
+      stringValue,
+    ),
   );
   if (endpoint !== undefined)
     addFinding({
