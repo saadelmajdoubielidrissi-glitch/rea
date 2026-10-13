@@ -9,6 +9,7 @@ import { createTestBinarySession } from "../../fixtures/binarySession.js";
 import { CdpBrowserProvider } from "../../../src/browser/CdpBrowserProvider.js";
 import { webPageInspectionSchema } from "../../../src/domain/browserObservationSchemas.js";
 import { createWebScreenshotArtifact } from "../../../src/domain/webScreenshot.js";
+import { webBundleAnalysisSchema } from "../../../src/domain/webBundleAnalysis.js";
 import { JAVASCRIPT_RUNTIME_RECONCILIATION_EXAMPLE } from "../../../src/contracts/javascript/javascriptRuntimeReconciliationExample.js";
 import {
   TOOL_CONTRACTS,
@@ -149,6 +150,86 @@ it(
   },
   INTEGRATION_TEST_TIMEOUT_MS,
 );
+
+it("keeps ambiguous endpoint candidates distinct through CLI and MCP", async () => {
+  const source = `fetch("login"); http.get("/api/users");
+    api.get("?page=2&tag=a&tag=b#section"); api.request("?");
+    xhr.open(method, "?view=1"); new Map().get("?lookup");
+    api.get("#section"); api.request("#"); xhr.open(method, "#view=1");
+    new Map().get("#lookup"); response.headers.get("#header-key");
+    const config = vscode.workspace.getConfiguration("git"); config.get("?setting");
+    config.get("#setting");
+    form.get("passwordControl"); translate.get("ADDRESS_ADDED");
+    cookie.put("token", value); request("POST", target);
+    snackBar.open(message, "X");\n${'form.get("passwordControl");\n'.repeat(2_000)}`;
+  const browser = await startFakeCdpBrowser({
+    commandResult: (command) =>
+      command.method === "Debugger.getScriptSource"
+        ? { scriptSource: source }
+        : undefined,
+  });
+  browsers.push(browser);
+  const { client } = await connectBrowser();
+  const response = await client.callTool({
+    name: "analyze_web_bundle",
+    arguments: {
+      cdp_endpoint: browser.endpoint,
+      target_id: "allowed-page",
+      observation_ms: 0,
+    },
+  });
+  expect(response.isError).not.toBe(true);
+  const mcp = parseEvidence(response.structuredContent);
+  const cli = parseEvidence(
+    await runCliJson([
+      "analyze-web-bundle",
+      browser.endpoint,
+      "allowed-page",
+      "--observation-ms",
+      "0",
+      "--json",
+    ]),
+  );
+  for (const evidence of [mcp, cli]) {
+    const result = webBundleAnalysisSchema.parse(evidence.normalized_result);
+    expect(
+      result.observations.endpoints.map(({ value }) => value).sort(),
+    ).toEqual([
+      "#",
+      "#section",
+      "#view=1",
+      "/api/users",
+      "?",
+      "?page=2&tag=a&tag=b#section",
+      "?view=1",
+      "login",
+    ]);
+    const candidates = result.inferences.filter(
+      ({ kind }) => kind === "endpoint_candidate",
+    );
+    expect(candidates.map(({ value }) => value).sort()).toEqual([
+      "ADDRESS_ADDED",
+      "POST",
+      "X",
+      "passwordControl",
+      "token",
+    ]);
+    expect(
+      candidates.every(
+        ({ confidence, basis }) =>
+          confidence === "low" &&
+          basis.every(
+            ({ artifact_sha256, line }) =>
+              result.capture.source_artifacts.some(
+                (artifact) => artifact.sha256 === artifact_sha256,
+              ) && line !== null,
+          ),
+      ),
+    ).toBe(true);
+  }
+  const text = response.content.find((item) => item.type === "text");
+  expect(text).toMatchObject({ type: "text", text: JSON.stringify(mcp) });
+});
 
 const verifySessionAndComparisonTools = async (
   connected: Awaited<ReturnType<typeof connectBrowser>>,

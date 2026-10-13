@@ -409,12 +409,18 @@ const XHR_METHODS = new Set([
   "TRACE",
 ]);
 
-/** An absolute HTTP(S)/WebSocket URL, or an absolute or relative path. */
-const isRequestUrlLiteral = (value: string): boolean =>
+/** Legacy URL/path shapes that bypass the overloaded lookup exclusions. */
+const isRequestUrlOrPathLiteral = (value: string): boolean =>
   /^(?:https?|wss?):\/\//iu.test(value) ||
   value.startsWith("/") ||
   value.startsWith("./") ||
   value.startsWith("../");
+
+/** Explicit request references, classified after receiver-specific exclusions. */
+const isRequestUrlReference = (value: string): boolean =>
+  isRequestUrlOrPathLiteral(value) ||
+  value.startsWith("?") ||
+  value.startsWith("#");
 
 /**
  * Browsing-context and document `open` take a URL or type first and a target
@@ -540,7 +546,13 @@ const isKeyedCollectionReceiver = (callee: t.Node): boolean => {
   return property === "headers" || property === "searchParams";
 };
 
-/** Select the literal URL argument for recognized network callees. */
+/** A literal endpoint shape or an ambiguous argument of an HTTP-method-named call. */
+export interface JavaScriptEndpointArgument {
+  readonly kind: "endpoint" | "candidate";
+  readonly value: string;
+}
+
+/** Classify one literal without treating a generic method name as network identity. */
 export const endpointArgument = (
   name: string,
   args: readonly (
@@ -551,12 +563,25 @@ export const endpointArgument = (
   )[],
   callee: t.Node,
   receiverFact?: JavaScriptOpenReceiverFact,
-): string | undefined => {
+): JavaScriptEndpointArgument | undefined => {
+  const literal = (
+    value: string | undefined,
+  ): JavaScriptEndpointArgument | undefined =>
+    value === undefined ? undefined : { kind: "endpoint", value };
   if (receiverFact === "window") return undefined;
   if (name === "fetch" || name.endsWith(".fetch") || name === "WebSocket")
-    return stringValue(args[0]);
-  if (name.endsWith(".open"))
-    return xhrOpenUrl(name, args[0], args[1], receiverFact);
+    return literal(stringValue(args[0]));
+  if (name.endsWith(".open")) {
+    const value = xhrOpenUrl(name, args[0], args[1], receiverFact);
+    if (value === undefined) return undefined;
+    return {
+      kind:
+        stringValue(args[0]) !== undefined || isRequestUrlReference(value)
+          ? "endpoint"
+          : "candidate",
+      value,
+    };
+  }
   const method = ["get", "post", "put", "patch", "delete", "request"].find(
     (candidate) => name === candidate || name.endsWith(`.${candidate}`),
   );
@@ -565,15 +590,20 @@ export const endpointArgument = (
     // Only get and delete also belong to the keyed-collection APIs, whose
     // keys are header, field, and parameter names rather than URLs or paths.
     // Configuration `get` reads setting keys.
-    return value !== undefined &&
+    if (value === undefined) return undefined;
+    if (
       (method === "get" || method === "delete") &&
-      !isRequestUrlLiteral(value) &&
+      !isRequestUrlOrPathLiteral(value) &&
       (isKeyedCollectionReceiver(callee) ||
         (method === "get" && receiverFact === "configuration"))
-      ? undefined
-      : value;
+    )
+      return undefined;
+    return {
+      kind: isRequestUrlReference(value) ? "endpoint" : "candidate",
+      value,
+    };
   }
-  if (name.endsWith("loadURL")) return stringValue(args[0]);
+  if (name.endsWith("loadURL")) return literal(stringValue(args[0]));
   return undefined;
 };
 
