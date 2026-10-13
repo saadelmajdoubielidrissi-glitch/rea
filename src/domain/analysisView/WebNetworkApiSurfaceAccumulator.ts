@@ -14,6 +14,7 @@ import {
 } from "../webNetworkCapture.js";
 import { pageViewCoverage } from "./analysisViewCoverage.js";
 import type { UnsignedAnalysisView } from "./analysisView.js";
+import { apiSurfaceResponse } from "./webNetworkApiSurfaceResponse.js";
 
 type Surface = Extract<UnsignedAnalysisView, { kind: "api-surface" }>;
 type Group = Surface["groups"][number];
@@ -47,13 +48,6 @@ type Buckets = Map<string, Map<string, Map<string, Map<string, GroupState>>>>;
 const requestSchema = z.object({
   request: z.object({ url: z.unknown(), method: z.unknown() }),
 });
-const responseSchema = z.object({
-  response: z.object({
-    status: z.unknown().optional(),
-    content: z.unknown().optional(),
-  }),
-});
-const contentSchema = z.object({ mimeType: z.unknown().optional() });
 const MEDIA_TYPE_ESSENCE =
   /^[A-Za-z0-9!#$%&'*+.^_`|~-]+\/[A-Za-z0-9!#$%&'*+.^_`|~-]+$/u;
 
@@ -291,7 +285,10 @@ export class WebNetworkApiSurfaceAccumulator {
     return ok({ template: parts.join(""), rules: rules.join(""), segments });
   }
 
-  add(record: WebNetworkCaptureRecord): Result<void, AnalysisError> {
+  add(
+    record: WebNetworkCaptureRecord,
+    format: "har" | "saz",
+  ): Result<void, AnalysisError> {
     const limitations = this.addLimitations(record.limitations);
     if (!limitations.ok) return limitations;
     const request = requestSchema.safeParse(record.reported);
@@ -312,15 +309,10 @@ export class WebNetworkApiSurfaceAccumulator {
         return this.#exclude(record.ordinal, "method-unavailable");
       if (parsed.path === null)
         return this.#exclude(record.ordinal, "url-unparseable");
-      const response = responseSchema.safeParse(record.reported);
-      const status = response.success
-        ? response.data.response.status
-        : undefined;
-      const content = contentSchema.safeParse(
-        response.success ? response.data.response.content : undefined,
+      const { status, mime: rawMime } = apiSurfaceResponse(
+        record.reported,
+        format,
       );
-      const mime = content.success ? content.data.mimeType : undefined;
-      const rawMime = typeof mime === "string" ? mime : "";
       if (!this.#temporary(textBytes(rawMime.length)))
         return this.#overBudget();
       const route = this.#route(parsed.path);
@@ -330,7 +322,7 @@ export class WebNetworkApiSurfaceAccumulator {
         method,
         parsed.origin,
         route.value,
-        typeof status === "number" && status !== 0 ? status : null,
+        status,
         mediaTypeEssence(rawMime),
       );
     } finally {

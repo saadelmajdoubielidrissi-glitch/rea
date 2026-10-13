@@ -22,7 +22,7 @@ const add = (
   accumulator: WebNetworkApiSurfaceAccumulator,
   sample: WebNetworkCaptureRecord,
 ) => {
-  const result = accumulator.add(sample);
+  const result = accumulator.add(sample, "har");
   if (!result.ok) throw result.error;
 };
 
@@ -36,7 +36,7 @@ it("admits the capture schema clone and grouping against the same budget", () =>
       headers: Array.from({ length: 40 }, () => ({ name: "x", value: "y" })),
     }).ok,
   ).toBe(true);
-  expect(accumulator.add(sample)).toMatchObject({
+  expect(accumulator.add(sample, "har")).toMatchObject({
     ok: false,
     error: { _tag: "AnalysisResourceConstraintError" },
   });
@@ -62,6 +62,7 @@ it("bounds many short literal groups, including groups with unavailable MIME typ
     const before = accumulator.page(0, 1000);
     const result = accumulator.add(
       record(accepted, `/route${accepted}`, "GET", ""),
+      "har",
     );
     if (result.ok) continue;
     expect(result.error).toMatchObject({
@@ -111,7 +112,9 @@ it.each([
     for (let ordinal = 0; ordinal < 150; ordinal += 1)
       add(accumulator, record(ordinal, `/route${ordinal}`));
     const before = accumulator.page(0, 1000);
-    expect(accumulator.add(record(150, path, method, mime))).toMatchObject({
+    expect(
+      accumulator.add(record(150, path, method, mime), "har"),
+    ).toMatchObject({
       ok: false,
       error: { _tag: "AnalysisResourceConstraintError" },
     });
@@ -144,6 +147,7 @@ it("refuses an entire merge before retaining any novel observed values or its or
   const before = accumulator.page(0, 1000);
   const result = accumulator.add(
     record(101, `/${"2".repeat(80)}`.repeat(200), "GET", "text/plain"),
+    "har",
   );
   expect(result).toMatchObject({
     ok: false,
@@ -159,7 +163,7 @@ it("bounds excluded-record storage and distinct limitations as well as endpoint 
     const sample = record(accepted, "/a");
     sample.reported = null;
     sample.limitations = [`producer caveat ${accepted}`];
-    const result = accumulator.add(sample);
+    const result = accumulator.add(sample, "har");
     if (!result.ok) {
       expect(result.error).toMatchObject({
         _tag: "AnalysisResourceConstraintError",
@@ -170,4 +174,21 @@ it("bounds excluded-record storage and distinct limitations as well as endpoint 
   expect(accepted).toBeGreaterThan(0);
   expect(accepted).toBeLessThan(1000);
   expect(accumulator.page(0, 1).excluded_records).toHaveLength(accepted);
+});
+
+it("admits SAZ header text before MIME interpretation or publishing a group", () => {
+  const accumulator = new WebNetworkApiSurfaceAccumulator(64 * 1024);
+  const sample = record(0, "/items");
+  sample.reported = {
+    request: { method: "GET", url: "https://api.test/items" },
+    response: {
+      status: "200",
+      headers: [{ name: "Content-Type", value: `text/${"a".repeat(30_000)}` }],
+    },
+  };
+  expect(accumulator.add(sample, "saz")).toMatchObject({
+    ok: false,
+    error: { _tag: "AnalysisResourceConstraintError" },
+  });
+  expect(accumulator.page(0, 1).groups).toEqual([]);
 });

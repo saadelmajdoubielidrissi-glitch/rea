@@ -62,7 +62,7 @@ export const apiSurfaceFields = {
     }),
   ),
 };
-/** Group retained HAR request lines; format matches do not establish handler identity. */
+/** Group retained HAR/SAZ request lines; format matches do not establish handler identity. */
 export const projectWebNetworkApiSurfaceView = (
   parent: AnalysisViewParent,
   view: AnalysisViewRequest,
@@ -98,7 +98,7 @@ export const projectWebNetworkApiSurfaceView = (
       ]),
     );
   const capture = parsed.data;
-  if (capture.format !== "har")
+  if (capture.format !== "har" && capture.format !== "saz")
     return unsupported(
       `api-surface does not support capture format ${capture.format}.`,
     );
@@ -119,7 +119,7 @@ export const projectWebNetworkApiSurfaceView = (
   ]);
   if (!limitations.ok) return limitations;
   for (const record of capture.records) {
-    const added = accumulator.add(record);
+    const added = accumulator.add(record, capture.format);
     if (!added.ok) return added;
   }
   const page = accumulator.page(view.offset, view.limit);
