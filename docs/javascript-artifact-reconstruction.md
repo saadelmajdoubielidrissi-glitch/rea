@@ -269,7 +269,8 @@ RPC client syntax also contributes network endpoint candidates, in both
 - `graphql:query`, `graphql:mutation`, and `graphql:subscription` record a
   named operation found at the start of a string or cooked template literal —
   the name must be followed by variable definitions (`($`), a directive, or a
-  selection set starting with a field name — or in a precompiled
+  selection set starting with a field name. Ignored tokens, including line
+  comments, may separate header tokens. Operations are also recognized in a precompiled
   `OperationDefinition` document object. A graphql-tag `loc.source.body` copy is
   not reported twice. Anonymous operations are not reported.
 

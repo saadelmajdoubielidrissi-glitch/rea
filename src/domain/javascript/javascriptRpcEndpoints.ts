@@ -154,36 +154,54 @@ const GRAPHQL_OPERATION_TYPES: ReadonlySet<string> = new Set([
   "mutation",
   "subscription",
 ]);
-// A named GraphQL operation header (GraphQL October 2021, OperationDefinition):
-// type, name, then variable definitions starting with `$`, a directive, or a
-// selection set starting with a field name.
-const GRAPHQL_OPERATION_HEADER =
-  /^(query|mutation|subscription)[\s,]+([_A-Za-z][_0-9A-Za-z]*)[\s,]*(?:\([\s,]*\$|@[_A-Za-z]|\{[\s,]*[_A-Za-z])/u;
-
 const isGraphqlIgnoredCharacter = (character: string): boolean =>
-  character === "," || character === "﻿" || /\s/u.test(character);
+  character === "," || character === "\uFEFF" || /\s/u.test(character);
+
+/** Skip ignored tokens at each GraphQL header boundary, not only its prefix. */
+const skipGraphqlIgnored = (text: string, start: number): number => {
+  let index = start;
+  while (index < text.length) {
+    const character = text.charAt(index);
+    if (isGraphqlIgnoredCharacter(character)) index += 1;
+    else if (character === "#") {
+      while (index < text.length && !/[\n\r]/u.test(text.charAt(index)))
+        index += 1;
+    } else break;
+  }
+  return index;
+};
+
+const graphqlNameAt = (
+  text: string,
+  index: number,
+): { value: string; end: number } | undefined => {
+  const name = /^[_A-Za-z][_0-9A-Za-z]*/u.exec(text.slice(index))?.[0];
+  return name === undefined
+    ? undefined
+    : { value: name, end: index + name.length };
+};
 
 /** Recover a named operation from GraphQL document text. */
 export const graphqlOperationFromText = (
   text: string,
 ): JavaScriptRpcEndpoint | undefined => {
-  // Skip GraphQL ignored tokens: whitespace, commas, BOM and # comments.
-  const limit = text.length;
-  let index = 0;
-  while (index < limit) {
-    const character = text.charAt(index);
-    if (isGraphqlIgnoredCharacter(character)) index += 1;
-    else if (character === "#") {
-      while (index < limit && !/[\n\r]/u.test(text.charAt(index))) index += 1;
-    } else break;
-  }
-  if (index >= limit) return undefined;
-  const header = GRAPHQL_OPERATION_HEADER.exec(text.slice(index));
-  const type = header?.[1];
-  const name = header?.[2];
-  return type === undefined || name === undefined
-    ? undefined
-    : { value: name, mechanism: `graphql:${type}` };
+  const type = graphqlNameAt(text, skipGraphqlIgnored(text, 0));
+  if (type === undefined || !GRAPHQL_OPERATION_TYPES.has(type.value))
+    return undefined;
+  const name = graphqlNameAt(text, skipGraphqlIgnored(text, type.end));
+  if (name === undefined) return undefined;
+  const index = skipGraphqlIgnored(text, name.end);
+  const next = text.charAt(index);
+  // Preserve the bounded OperationDefinition recognition scope: variable
+  // definitions starting with `$`, a named directive, or a named first field.
+  const hasHeader =
+    next === "("
+      ? text.charAt(skipGraphqlIgnored(text, index + 1)) === "$"
+      : (next === "@" || next === "{") &&
+        graphqlNameAt(text, skipGraphqlIgnored(text, index + 1)) !== undefined;
+  return hasHeader
+    ? { value: name.value, mechanism: `graphql:${type.value}` }
+    : undefined;
 };
 
 /** Recover a named operation from a precompiled GraphQL document object. */
