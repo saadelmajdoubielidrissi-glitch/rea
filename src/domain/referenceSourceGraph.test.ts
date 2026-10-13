@@ -435,6 +435,31 @@ describe("historical source graph validation", () => {
 });
 
 describe("historical source graph symlink path identity", () => {
+  it("resolves excluded target paths with Unicode identity and directory boundaries", () => {
+    const input = { ...graphInput(), inventory_state: "partial" as const };
+    input.exclusions = [
+      { path: "café", reason: "caller-excluded", pattern: "café/" },
+    ];
+    input.entries[2] = symlinkEntry({
+      target: "../cafe\u0301/nested/output.js",
+    });
+    const graph = createHistoricalSourceGraph(input);
+    expect(parseHistoricalSourceGraph(graph)).toEqual(graph);
+    expect(graph.entries[2]).toMatchObject({
+      target: "../cafe\u0301/nested/output.js",
+      target_state: "internal",
+    });
+
+    input.entries[2] = symlinkEntry({ target: "../café-other/output.js" });
+    expect(() => createHistoricalSourceGraph(input)).toThrow(
+      /must resolve to an inventoried entry/u,
+    );
+    input.entries[2] = symlinkEntry({ target: "../../café/output.js" });
+    expect(() => createHistoricalSourceGraph(input)).toThrow(
+      /must resolve to an inventoried entry/u,
+    );
+  });
+
   it("joins internal symlink targets with the inventory NFC normalizer", () => {
     // "café" spelled NFC, as the inventory produces it, and the same
     // name spelled NFD, as a macOS readlink can report it.

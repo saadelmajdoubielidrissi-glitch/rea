@@ -320,6 +320,9 @@ const checkSymlinks = (
   context: z.RefinementCtx,
 ): void => {
   const lookupPath = createReferenceSourcePathLookup(paths);
+  const excludedPaths = createReferenceSourcePathLookup(
+    graph.exclusions.map(({ path }) => path),
+  );
   for (const [index, entry] of graph.entries.entries()) {
     if (entry.kind !== "symlink") continue;
     if (entry.target === null) continue;
@@ -341,11 +344,16 @@ const checkSymlinks = (
       resolved.startsWith("../") ||
       resolved === ".." ||
       // The inventory root is implicit rather than an entry with path ".".
-      (resolved !== "." && lookupPath.resolve(resolved) === undefined)
+      (resolved !== "." &&
+        lookupPath.resolve(resolved) === undefined &&
+        // Exclusions do not preserve whether the omitted entry was a
+        // directory, so only an exact excluded target can be established.
+        excludedPaths.resolve(resolved) === undefined)
     )
       context.addIssue({
         code: "custom",
-        message: "Internal symlink target must resolve to an inventoried entry",
+        message:
+          "Internal symlink target must resolve to an inventoried entry or a recorded exclusion",
         path: ["entries", index, "target"],
       });
   }

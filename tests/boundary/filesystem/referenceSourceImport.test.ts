@@ -89,6 +89,69 @@ describe("reference source import projections", () => {
 });
 
 describe("reference source symlink import", () => {
+  it.each([
+    { target: "dist", reason: "default-ignored", pattern: "dist/" },
+    { target: "generated", reason: "project-ignored", pattern: "generated/" },
+    { target: "cache", reason: "caller-excluded", pattern: "cache/" },
+  ])(
+    "retains links into a $reason directory without importing it",
+    async ({ target, reason, pattern }) => {
+      const root = await createTestTempDirectory(
+        "rea-reference-excluded-links-",
+      );
+      await mkdir(join(root, target, "nested"), { recursive: true });
+      await writeFile(
+        join(root, target, "nested", "output.js"),
+        "export const generated = true;\n",
+      );
+      await writeFile(join(root, "source.ts"), "export const value = 1;\n");
+      if (reason === "project-ignored")
+        await writeFile(join(root, ".gitignore"), `${pattern}\n`);
+      await symlink(target, join(root, "alias"));
+      await symlink(`${target}/nested/output.js`, join(root, "output-link"));
+
+      const result = await importReferenceSource({
+        root,
+        caller: "reference-import-test",
+        policy: { secretPatterns: [] },
+        ...(reason === "caller-excluded" ? { excludePaths: [pattern] } : {}),
+      });
+      if (!result.ok) throw result.error;
+      expect(result.value.inventory_state).toBe("partial");
+      expect(result.value.exclusions).toContainEqual({
+        path: target,
+        reason,
+        pattern,
+      });
+      expect(result.value.entries).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            path: "source.ts",
+            kind: "file",
+            content_state: "hashed",
+          }),
+          expect.objectContaining({
+            path: "alias",
+            kind: "symlink",
+            target,
+            target_state: "internal",
+          }),
+          expect.objectContaining({
+            path: "output-link",
+            kind: "symlink",
+            target: `${target}/nested/output.js`,
+            target_state: "internal",
+          }),
+        ]),
+      );
+      expect(
+        result.value.entries.some(
+          ({ path }) => path === target || path.startsWith(`${target}/`),
+        ),
+      ).toBe(false);
+    },
+  );
+
   it("preserves an unreadable target as unknown instead of a synthetic path", () => {
     const read: ReferenceSourceRead = {
       root: "/reference",
