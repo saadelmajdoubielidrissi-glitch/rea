@@ -10,17 +10,24 @@ interface HtmlScriptReference {
   readonly endOffset: number;
 }
 
+interface HtmlInlineScript {
+  readonly startOffset: number;
+  readonly endOffset: number;
+}
+
 /** Extract inert HTML script references and the first document base href. */
 export const htmlArtifactReferences = (
   text: string,
 ): {
   readonly baseHref: string | null;
   readonly scripts: readonly HtmlScriptReference[];
+  readonly inlineScripts: readonly HtmlInlineScript[];
 } => {
   const pending: DefaultTreeAdapterTypes.Node[] = [
     parse(text, { sourceCodeLocationInfo: true }),
   ];
   const scripts: HtmlScriptReference[] = [];
+  const inlineScripts: HtmlInlineScript[] = [];
   let baseHref: string | null = null;
   while (pending.length > 0) {
     const node = pending.pop();
@@ -36,12 +43,31 @@ export const htmlArtifactReferences = (
       if (node.tagName === "script") {
         const src = node.attrs.find(({ name }) => name === "src");
         const location = node.sourceCodeLocation?.startTag;
-        if (src !== undefined && src.value !== "" && location !== undefined) {
-          scripts.push({
-            scriptPath: src.value,
-            startOffset: location.startOffset,
-            endOffset: location.endOffset,
-          });
+        if (src !== undefined) {
+          if (src.value !== "" && location !== undefined) {
+            scripts.push({
+              scriptPath: src.value,
+              startOffset: location.startOffset,
+              endOffset: location.endOffset,
+            });
+          }
+        } else {
+          const hasInlineBody = node.childNodes.some(
+            (child) =>
+              defaultTreeAdapter.isTextNode(child) &&
+              defaultTreeAdapter.getTextNodeContent(child).trim().length > 0,
+          );
+          const elementLocation = node.sourceCodeLocation;
+          if (
+            hasInlineBody &&
+            elementLocation?.startOffset !== undefined &&
+            elementLocation.endOffset !== undefined
+          ) {
+            inlineScripts.push({
+              startOffset: elementLocation.startOffset,
+              endOffset: elementLocation.endOffset,
+            });
+          }
         }
       }
     }
@@ -51,5 +77,5 @@ export const htmlArtifactReferences = (
       for (const child of node.childNodes.toReversed()) pending.push(child);
     }
   }
-  return { baseHref, scripts };
+  return { baseHref, scripts, inlineScripts };
 };

@@ -200,6 +200,11 @@ const graphCoverage = (context: JavaScriptArtifactGraphContext) => {
       null,
     );
   if (unknownGap) return partialApplicationCoverage([], null);
+  if (context.analysis.omitted_inline_scripts > 0)
+    return partialApplicationCoverage(
+      [],
+      context.analysis.omitted_inline_scripts,
+    );
   if (context.snapshot.integrity_contradictions.length > 0) {
     const nestedArchiveWasOpaque =
       context.snapshot.integrity_contradictions.some(({ logical_path }) =>

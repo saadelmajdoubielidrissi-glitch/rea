@@ -128,6 +128,8 @@ export interface JavaScriptArtifactAnalysis<
   readonly packages: readonly JavaScriptPackageObservation[];
   readonly json_modules: readonly JavaScriptJsonModuleObservation[];
   readonly html_scripts: readonly JavaScriptHtmlScriptObservation[];
+  /** Non-empty inline HTML scripts observed but intentionally not analyzed. */
+  readonly omitted_inline_scripts: number;
   readonly source_maps: readonly JavaScriptSourceMapObservation[];
   readonly visited_ast_nodes: number;
   readonly findings: number;

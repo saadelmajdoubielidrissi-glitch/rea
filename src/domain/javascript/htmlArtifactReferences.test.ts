@@ -48,7 +48,33 @@ it("retains exact opening-tag offsets rather than the script body", () => {
         endOffset: prefix.length + opening.length,
       },
     ],
+    inlineScripts: [],
   });
+});
+
+it("locates non-empty inline script elements without reporting external or inert scripts", () => {
+  const external = '<script src="external.js">fallback()</script>';
+  const classic = "<script>function startGame() {}</script>";
+  const module = '<script type="module">import "./module.js";</script>';
+  const empty = "<script></script>";
+  const whitespace = "<script> \n </script>";
+  const template = "<template><script>ignored()</script></template>";
+  const text = [external, classic, module, empty, whitespace, template].join(
+    "\n",
+  );
+  const classicOffset = text.indexOf(classic);
+  const moduleOffset = text.indexOf(module);
+
+  expect(htmlArtifactReferences(text).inlineScripts).toEqual([
+    {
+      startOffset: classicOffset,
+      endOffset: classicOffset + classic.length,
+    },
+    {
+      startOffset: moduleOffset,
+      endOffset: moduleOffset + module.length,
+    },
+  ]);
 });
 
 it.each([
