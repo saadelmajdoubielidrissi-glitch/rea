@@ -236,6 +236,9 @@ describe("function comparison normalized identity", () => {
     "rejects malformed facet availability instead of treating it as absence",
     rejectsMalformedFacetAvailability,
   );
+});
+
+describe("function comparison symbol identity", () => {
   it(
     "keeps differing generated names ambiguous and stable names mismatched",
     keepsGeneratedNamesAmbiguous,

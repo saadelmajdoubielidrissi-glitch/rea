@@ -42,6 +42,7 @@ async function readReleaseWorkflow() {
         }),
         publish: jobSchema,
         "publish-mcp": jobSchema,
+        "publish-windows-gui": jobSchema,
       }),
     })
     .parse(
@@ -690,4 +691,33 @@ it("requires qualified package validation before publishing and retains the regi
       .slice(publish + 1)
       .some((command) => command.includes("verify-published-package.mjs")),
   ).toBe(true);
+});
+
+it("uploads the Windows GUI archive before its checksum and recovers orphan checksums", async () => {
+  const steps = (await readReleaseWorkflow()).jobs["publish-windows-gui"].steps;
+  const attach = steps.find(
+    (step) => step.name === "Attach the portable GUI to the GitHub release",
+  );
+  const command = attach?.run ?? "";
+  const orphanRemoval = command.indexOf(
+    "gh release delete-asset $env:TAG $checksumName --yes",
+  );
+  const archiveUpload = command.indexOf(
+    "& gh release upload $env:TAG $env:ASSET",
+  );
+  const checksumUpload = command.indexOf(
+    "& gh release upload $env:TAG $env:CHECKSUM",
+  );
+
+  expect(orphanRemoval).toBeGreaterThanOrEqual(0);
+  expect(orphanRemoval).toBeLessThan(archiveUpload);
+  expect(archiveUpload).toBeGreaterThanOrEqual(0);
+  expect(checksumUpload).toBeGreaterThan(archiveUpload);
+  expect(command.slice(orphanRemoval, archiveUpload)).toContain(
+    "$LASTEXITCODE -ne 0",
+  );
+  expect(command.slice(archiveUpload, checksumUpload)).toContain(
+    "$LASTEXITCODE -ne 0",
+  );
+  expect(command.slice(checksumUpload)).toContain("$LASTEXITCODE -ne 0");
 });
