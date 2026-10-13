@@ -189,9 +189,11 @@ const parseBrowserCapture = (
       kind: "browser",
       targetId: inspection.target.target_id,
       targetOrigin: inspection.target.origin,
-      sourceIncluded: inspection.scripts.items.some(
-        ({ source }) => source.included,
-      ),
+      sourceIncluded:
+        inspection.scripts.items.some(({ source }) => source.included) ||
+        inspection.workers.some((worker) =>
+          worker.observation?.scripts.some(({ source }) => source.included),
+        ),
     },
     path,
   );
@@ -200,7 +202,15 @@ const parseBrowserCapture = (
     evidence,
     inspection,
     captureSha256: digestCanonicalValue(inspection, "Runtime reconciliation"),
-    scriptsCompleteWithinScope: scriptsComplete(inspection.completeness),
+    scriptsCompleteWithinScope:
+      scriptsComplete(inspection.completeness) &&
+      inspection.workers.every(
+        (worker) =>
+          worker.observation === undefined ||
+          (worker.observation.ownership === "unknown" &&
+            !worker.observation.selected_explicitly) ||
+          scriptsComplete(worker.observation.completeness),
+      ),
   };
 };
 
@@ -479,7 +489,7 @@ const assertRuntimeParameters = (
     );
 };
 
-const scriptsComplete = (completeness: {
+export const scriptsComplete = (completeness: {
   readonly truncated_sections: readonly string[];
   readonly unavailable_sections: readonly string[];
   readonly dropped_events: { readonly scripts: number };
