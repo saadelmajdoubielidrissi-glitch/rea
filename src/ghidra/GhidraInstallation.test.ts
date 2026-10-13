@@ -44,7 +44,7 @@ const host = (
 ): GhidraInstallationHost => ({
   readText: (path) =>
     path === PROPERTIES
-      ? `application.version=${SUPPORTED_GHIDRA_VERSION}\napplication.java.min=${String(SUPPORTED_GHIDRA_JAVA_MAJOR)}\n`
+      ? `application.version=${SUPPORTED_GHIDRA_VERSION}\napplication.release.name=PUBLIC\napplication.java.min=${String(SUPPORTED_GHIDRA_JAVA_MAJOR)}\n`
       : undefined,
   executable: (path) =>
     path === HEADLESS || path === MAC_DECOMPILER || path === LINUX_DECOMPILER,
@@ -138,7 +138,7 @@ describe("Ghidra installation inspection", () => {
         },
         host({
           readText: () =>
-            `application.version=${providerVersion}\napplication.java.min=21\napplication.java.max=\n`,
+            `application.version=${providerVersion}\napplication.release.name=PUBLIC\napplication.java.min=21\napplication.java.max=\n`,
           probeJava: () => ({
             ...JAVA,
             version: javaVersion,
@@ -192,7 +192,7 @@ describe("Ghidra installation inspection", () => {
       architecture: "x64",
       readText: (path) =>
         path === WINDOWS_PROPERTIES
-          ? `application.version=${SUPPORTED_GHIDRA_VERSION}\napplication.java.min=21\n`
+          ? `application.version=${SUPPORTED_GHIDRA_VERSION}\napplication.release.name=PUBLIC\napplication.java.min=21\n`
           : undefined,
       executable: (path) =>
         path === WINDOWS_HEADLESS || path === WINDOWS_DECOMPILER,
@@ -368,10 +368,16 @@ describe("Ghidra release line and JDK bounds", () => {
     );
     expect(properties).toEqual({
       providerVersion: "12.1.4",
+      configurationDirectoryName: null,
       javaMinimum: { status: "major", major: 21 },
       javaMaximum: { status: "absent" },
       parseError: null,
     });
+    expect(
+      ghidraApplicationProperties(
+        "application.version=12.1.4\napplication.release.name=PUBLIC\n",
+      ).configurationDirectoryName,
+    ).toBe("ghidra_12.1.4_PUBLIC");
     expect(
       ghidraApplicationProperties("application.version=12.1.4").javaMinimum,
     ).toEqual({

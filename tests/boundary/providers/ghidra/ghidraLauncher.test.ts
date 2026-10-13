@@ -517,6 +517,7 @@ describe("Ghidra Windows launcher runtime", () => {
       const launcher = new GhidraHeadlessLauncher({
         environment: process.env,
         platform: "win32",
+        configurationDirectoryName: release,
         analyzeHeadlessPath: join(
           installRoot,
           "support",

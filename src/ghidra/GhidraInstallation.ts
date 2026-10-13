@@ -213,6 +213,7 @@ export interface AvailableGhidraInstallation extends GhidraInstallationObservati
   readonly analyzeHeadlessPath: string;
   readonly applicationPropertiesPath: string;
   readonly providerVersion: string;
+  readonly configurationDirectoryName: string;
   readonly javaHome: string;
   readonly javaVersion: string;
 }
@@ -279,6 +280,7 @@ interface GhidraInstallationCoordinates {
   readonly analyzeHeadlessPath: string | null;
   readonly nativeDecompilerPath: string | null;
   readonly properties: GhidraApplicationProperties | undefined;
+  readonly configurationDirectoryName: string | null;
   readonly javaCommand: string;
   readonly java: GhidraJavaObservation | undefined;
 }
@@ -349,6 +351,7 @@ const availableInstallation = (
     coordinates.installDir === null ||
     coordinates.applicationPropertiesPath === null ||
     coordinates.analyzeHeadlessPath === null ||
+    coordinates.configurationDirectoryName === null ||
     providerVersion === null ||
     providerVersion === undefined ||
     coordinates.java === undefined
@@ -363,6 +366,7 @@ const availableInstallation = (
     analyzeHeadlessPath: coordinates.analyzeHeadlessPath,
     applicationPropertiesPath: coordinates.applicationPropertiesPath,
     providerVersion,
+    configurationDirectoryName: coordinates.configurationDirectoryName,
     javaHome: coordinates.java.home,
     javaVersion: coordinates.java.version,
   };
@@ -419,6 +423,10 @@ const installationCoordinates = (
     applicationPropertiesPath === null
       ? undefined
       : host.readText(applicationPropertiesPath);
+  const parsedProperties =
+    properties === undefined
+      ? undefined
+      : ghidraApplicationProperties(properties);
   const javaCommand =
     options.javaHome === undefined
       ? platform === "win32"
@@ -434,10 +442,10 @@ const installationCoordinates = (
     applicationPropertiesPath,
     analyzeHeadlessPath,
     nativeDecompilerPath,
-    properties:
-      properties === undefined
-        ? undefined
-        : ghidraApplicationProperties(properties),
+    properties: parsedProperties,
+    configurationDirectoryName:
+      parsedProperties?.configurationDirectoryName ??
+      (installDir === null ? null : path.basename(installDir)),
     javaCommand,
     // The configuration check rejects a relative JAVA_HOME. Probing it would
     // run whatever `bin/java` the current directory holds.

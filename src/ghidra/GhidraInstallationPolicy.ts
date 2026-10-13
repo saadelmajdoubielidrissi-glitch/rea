@@ -49,6 +49,8 @@ export type GhidraJavaRequirement =
 /** Version and Java bounds read from one `application.properties` file. */
 export interface GhidraApplicationProperties {
   readonly providerVersion: string | null;
+  /** Ghidra's private configuration folder name, derived from parsed release facts. */
+  readonly configurationDirectoryName: string | null;
   readonly javaMinimum: GhidraJavaBound;
   readonly javaMaximum: GhidraJavaBound;
   /** A malformed Java properties escape invalidates the entire file. */
@@ -65,15 +67,25 @@ export const ghidraApplicationProperties = (
   if (!parsed.ok)
     return {
       providerVersion: null,
+      configurationDirectoryName: null,
       javaMinimum: { status: "unresolved", raw: parsed.error },
       javaMaximum: { status: "unresolved", raw: parsed.error },
       parseError: parsed.error,
     };
   const providerVersion = parsed.value.get("application.version");
+  const releaseName = parsed.value.get("application.release.name");
+  const configurationDirectoryName =
+    providerVersion !== undefined &&
+    releaseName !== undefined &&
+    /^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(providerVersion) &&
+    /^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(releaseName)
+      ? `ghidra_${providerVersion}_${releaseName}`
+      : null;
   const minimum = parsed.value.get("application.java.min");
   const maximum = parsed.value.get("application.java.max");
   return {
     providerVersion: providerVersion ?? null,
+    configurationDirectoryName,
     javaMinimum:
       minimum === undefined ? { status: "absent" } : parseJavaBound(minimum),
     // Ghidra uses an explicitly empty maximum to mean no upper bound.

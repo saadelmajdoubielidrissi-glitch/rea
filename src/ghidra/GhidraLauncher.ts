@@ -147,6 +147,8 @@ const ghidraLaunchCommandOutput = (
 export interface GhidraHeadlessLauncherOptions {
   readonly environment: Readonly<NodeJS.ProcessEnv>;
   readonly analyzeHeadlessPath: string;
+  /** Parsed Ghidra release identity that owns its private configuration directory. */
+  readonly configurationDirectoryName?: string;
   readonly javaHome?: string;
   readonly javaVmName?: string;
   readonly bridgeScriptPath: string;
@@ -220,11 +222,10 @@ export class GhidraHeadlessLauncher implements GhidraLauncher {
             "Installed Allegrex content changed since profile resolution; reopen the target to resolve a fresh profile.",
           );
       }
-      await createGhidraRuntimeDirectories(
-        paths,
-        platform,
-        await ghidraConfigReleaseDirectory(this.options.analyzeHeadlessPath),
-      );
+      const configReleaseDirectory =
+        this.options.configurationDirectoryName ??
+        (await ghidraConfigReleaseDirectory(this.options.analyzeHeadlessPath));
+      await createGhidraRuntimeDirectories(paths, platform, configReleaseDirectory);
       const seedPath =
         this.options.analysisSeeds === undefined
           ? undefined
