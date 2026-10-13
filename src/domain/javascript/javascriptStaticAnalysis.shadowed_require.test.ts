@@ -15,6 +15,22 @@ describe("static require loader calls", () => {
     ]);
   });
 
+  it("records a member loader call", () => {
+    expect(
+      requireSpecifiers('const loaded = module.require("./member.cjs");'),
+    ).toEqual(["./member.cjs"]);
+  });
+
+  it("records a loader a createRequire binding provides", () => {
+    expect(
+      requireSpecifiers(`
+        import { createRequire } from "node:module";
+        const require = createRequire(import.meta.url);
+        const loaded = require("./created.cjs");
+      `),
+    ).toEqual(["./created.cjs"]);
+  });
+
   it("ignores a require call that a local binding shadows", () => {
     expect(
       requireSpecifiers(`

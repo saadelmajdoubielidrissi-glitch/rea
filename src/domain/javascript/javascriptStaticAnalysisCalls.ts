@@ -33,6 +33,7 @@ import type {
 } from "./javascriptStaticAnalysisState.js";
 import {
   resolveSemanticBindingState,
+  semanticStableInitializer,
   type JavaScriptSemanticAnalysisState,
 } from "./javascriptSemanticState.js";
 import {
@@ -61,7 +62,7 @@ export const inspectCall = (
     node,
     name,
     moduleRequireName,
-    isUnmodifiedGlobalReference(node.callee, bindings, name),
+    isRequireLoaderReference(node.callee, bindings, name),
   );
   if (requireCall !== null)
     addReference(context, {
@@ -215,6 +216,32 @@ const noteMediaElementPreloads = (
       accumulator.mediaElementPreloads.add(property);
 };
 
+/**
+ * A `require` name is the loader unless a lexical binding replaces it. A binding
+ * proven to come from `createRequire(...)` is that loader; any other binding,
+ * such as a function parameter, is a different value that only shares the name.
+ */
+const isRequireLoaderReference = (
+  callee: t.Node,
+  state: JavaScriptSemanticAnalysisState,
+  name: string,
+): boolean => {
+  const binding = resolveSemanticBindingState(state, callee, name);
+  if (binding === undefined)
+    return isUnmodifiedGlobalReference(callee, state, name);
+  const initializer = semanticStableInitializer(binding, state)?.node;
+  const expression =
+    initializer !== undefined && t.isVariableDeclarator(initializer)
+      ? initializer.init
+      : initializer;
+  return (
+    expression !== null &&
+    expression !== undefined &&
+    t.isCallExpression(expression) &&
+    calleeName(expression.callee).endsWith("createRequire")
+  );
+};
+
 const requireCallSpecifier = (
   node: JavaScriptCallLike,
   name: string,
@@ -226,6 +253,8 @@ const requireCallSpecifier = (
   // The module's own factory require name is a real binding, so it keeps its
   // own lane below.
   if (name === "require" && isGlobalRequire)
+    return { specifier: argumentValue(node.arguments[0]) };
+  if (name.endsWith(".require"))
     return { specifier: argumentValue(node.arguments[0]) };
   if (name === "__webpack_require__" || name === moduleRequireName)
     return { specifier: argumentValue(node.arguments[0]) };
