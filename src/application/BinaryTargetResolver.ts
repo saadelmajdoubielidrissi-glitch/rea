@@ -279,6 +279,7 @@ const detectArtifactFormat = async (
       | "dos-mz"
       | "dos-com"
       | "raw-binary"
+      | "psx-exe"
     >
   | undefined
 > => {
@@ -348,6 +349,7 @@ const isArchiveFormat = (
     | "dos-mz"
     | "dos-com"
     | "raw-binary"
+    | "psx-exe"
   >,
 ): format is Extract<BinaryTarget, { kind: "archive" }>["format"] =>
   isZipPackageFormat(format) || ["asar", "dmg", "pkg"].includes(format);
@@ -495,6 +497,7 @@ const readExecutableMetadata = async (
   const parsed = parseExecutableHeader(bytes, hostArchitecture, fileSize);
   if (
     !parsed.ok ||
+    parsed.value.format !== "elf" ||
     parsed.value.architecture !== "mips" ||
     parsed.value.mips.elfClass !== 32
   )
