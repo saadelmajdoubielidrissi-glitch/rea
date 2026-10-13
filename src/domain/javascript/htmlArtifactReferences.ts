@@ -10,17 +10,73 @@ interface HtmlScriptReference {
   readonly endOffset: number;
 }
 
-/** Extract inert HTML script references and the first document base href. */
+/** JavaScript written directly in a script element instead of loaded by URL. */
+export interface HtmlInlineScript {
+  readonly scriptType: "classic" | "module";
+  /** Offsets of the script body, between the opening and closing tags. */
+  readonly startOffset: number;
+  readonly endOffset: number;
+}
+
+// The JavaScript MIME type essences from the WHATWG MIME Sniffing standard.
+const JAVASCRIPT_MIME_TYPES = new Set([
+  "application/ecmascript",
+  "application/javascript",
+  "application/x-ecmascript",
+  "application/x-javascript",
+  "text/ecmascript",
+  "text/javascript",
+  "text/javascript1.0",
+  "text/javascript1.1",
+  "text/javascript1.2",
+  "text/javascript1.3",
+  "text/javascript1.4",
+  "text/javascript1.5",
+  "text/jscript",
+  "text/livescript",
+  "text/x-ecmascript",
+  "text/x-javascript",
+]);
+
+/**
+ * Classify a script element's type as HTML "prepare the script element" does.
+ * Import maps, speculation rules and data blocks are not JavaScript.
+ */
+const inlineScriptType = (
+  attrs: readonly { readonly name: string; readonly value: string }[],
+): HtmlInlineScript["scriptType"] | null => {
+  const type = attrs.find(({ name }) => name === "type");
+  const language = attrs.find(({ name }) => name === "language");
+  const declared =
+    type !== undefined
+      ? type.value
+      : language !== undefined && language.value !== ""
+        ? `text/${language.value}`
+        : "";
+  if (declared === "") return "classic";
+  const essence = declared
+    .replace(/^[\t\n\f\r ]+|[\t\n\f\r ]+$/gu, "")
+    .toLowerCase();
+  if (JAVASCRIPT_MIME_TYPES.has(essence)) return "classic";
+  return essence === "module" ? "module" : null;
+};
+
+/**
+ * Extract inert HTML script references, inline JavaScript bodies, and the
+ * first document base href.
+ */
 export const htmlArtifactReferences = (
   text: string,
 ): {
   readonly baseHref: string | null;
   readonly scripts: readonly HtmlScriptReference[];
+  readonly inlineScripts: readonly HtmlInlineScript[];
 } => {
   const pending: DefaultTreeAdapterTypes.Node[] = [
     parse(text, { sourceCodeLocationInfo: true }),
   ];
   const scripts: HtmlScriptReference[] = [];
+  const inlineScripts: HtmlInlineScript[] = [];
   let baseHref: string | null = null;
   while (pending.length > 0) {
     const node = pending.pop();
@@ -43,6 +99,11 @@ export const htmlArtifactReferences = (
             endOffset: location.endOffset,
           });
         }
+        const inline = src === undefined ? inlineScriptBody(node) : undefined;
+        const scriptType =
+          inline === undefined ? null : inlineScriptType(node.attrs);
+        if (inline !== undefined && scriptType !== null)
+          inlineScripts.push({ scriptType, ...inline });
       }
     }
     // Template content belongs to a separate inert document fragment. Only
@@ -51,5 +112,24 @@ export const htmlArtifactReferences = (
       for (const child of node.childNodes.toReversed()) pending.push(child);
     }
   }
-  return { baseHref, scripts };
+  return { baseHref, scripts, inlineScripts };
+};
+
+/** Locate a script element's non-blank body; browsers ignore it when src is set. */
+const inlineScriptBody = (
+  node: DefaultTreeAdapterTypes.Element,
+): { readonly startOffset: number; readonly endOffset: number } | undefined => {
+  const startTag = node.sourceCodeLocation?.startTag;
+  if (startTag === undefined) return undefined;
+  let body = "";
+  let endOffset: number | undefined;
+  for (const child of node.childNodes) {
+    if (!defaultTreeAdapter.isTextNode(child)) continue;
+    body += child.value;
+    endOffset = child.sourceCodeLocation?.endOffset ?? endOffset;
+  }
+  // An unclosed script's element range ends at its opening tag, so the body's
+  // own text location bounds it.
+  if (body.trim() === "" || endOffset === undefined) return undefined;
+  return { startOffset: startTag.endOffset, endOffset };
 };

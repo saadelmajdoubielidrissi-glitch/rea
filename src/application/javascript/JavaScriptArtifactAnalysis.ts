@@ -32,6 +32,7 @@ import type {
   JavaScriptArtifactAnalysis,
   JavaScriptModuleArtifactAnalysis,
   JavaScriptModuleSemanticIr,
+  JavaScriptHtmlInlineScriptObservation,
   JavaScriptHtmlScriptObservation,
   JavaScriptJsonModuleObservation,
   JavaScriptPackageObservation,
@@ -58,6 +59,7 @@ interface MutableArtifactAnalysis<
   readonly packages: JavaScriptPackageObservation[];
   readonly jsonModules: JavaScriptJsonModuleObservation[];
   readonly htmlScripts: JavaScriptHtmlScriptObservation[];
+  readonly htmlInlineScripts: JavaScriptHtmlInlineScriptObservation[];
   readonly sourceMaps: JavaScriptSourceMapObservation[];
   visitedNodes: number;
   findings: number;
@@ -329,14 +331,21 @@ const finalizeArtifactAnalysis = <
     packages: state.packages,
     json_modules: state.jsonModules,
     html_scripts: state.htmlScripts,
+    html_inline_scripts: state.htmlInlineScripts,
     source_maps: state.sourceMaps,
     visited_ast_nodes: state.visitedNodes,
-    findings: state.findings + state.htmlScripts.length,
+    findings:
+      state.findings +
+      state.htmlScripts.length +
+      state.htmlInlineScripts.length,
     modules: state.modules,
     parse_failures: state.parseFailures,
     limitations: [
       "JavaScript and HTML were parsed as inert text; bundle bootstrap code was never executed.",
       "Static paths and relationships may remain unresolved when expressions are dynamic or obfuscated.",
+      ...[...groupHtmlInlineScripts(state.htmlInlineScripts)].map(
+        ([path, scripts]) => htmlInlineScriptLimitation(path, scripts),
+      ),
       ...state.files.flatMap(
         ({ analysis_failure, application_projection_failure }) =>
           [analysis_failure, application_projection_failure].flatMap(
@@ -356,8 +365,11 @@ function* analyzeArtifactFileSteps<
   const { state } = context;
   if (classifyOutsideAnalysisScope(file, state)) return;
   addStructuredObservations(file, state);
-  if (file.kind === "html" && file.text.included)
-    state.htmlScripts.push(...parseHtmlScripts(file.path, file.text.value));
+  if (file.kind === "html" && file.text.included) {
+    const html = parseHtmlScripts(file.path, file.text.value);
+    state.htmlScripts.push(...html.scripts);
+    state.htmlInlineScripts.push(...html.inlineScripts);
+  }
   if (file.kind === "source-map") addSourceMap(file, context);
   if (file.kind !== "javascript" || !file.text.included) {
     state.files.push({ file, javascript: null, semantic: null });
@@ -443,6 +455,7 @@ const emptyArtifactAnalysis = <
   packages: [],
   jsonModules: [],
   htmlScripts: [],
+  htmlInlineScripts: [],
   sourceMaps: [],
   visitedNodes: 0,
   findings: 0,
@@ -515,14 +528,26 @@ const unavailablePackage = (
 const parseHtmlScripts = (
   path: string,
   text: string,
-): JavaScriptHtmlScriptObservation[] => {
-  const { scripts, baseHref } = htmlArtifactReferences(text);
-  return scripts.map(({ scriptPath, startOffset, endOffset }) => ({
-    html_path: path,
-    script_path: scriptPath,
-    base_href: baseHref,
-    location: rangeForOffsets(text, startOffset, endOffset),
-  }));
+): {
+  readonly scripts: JavaScriptHtmlScriptObservation[];
+  readonly inlineScripts: JavaScriptHtmlInlineScriptObservation[];
+} => {
+  const { scripts, inlineScripts, baseHref } = htmlArtifactReferences(text);
+  return {
+    scripts: scripts.map(({ scriptPath, startOffset, endOffset }) => ({
+      html_path: path,
+      script_path: scriptPath,
+      base_href: baseHref,
+      location: rangeForOffsets(text, startOffset, endOffset),
+    })),
+    inlineScripts: inlineScripts.map(
+      ({ scriptType, startOffset, endOffset }) => ({
+        html_path: path,
+        script_type: scriptType,
+        location: rangeForOffsets(text, startOffset, endOffset),
+      }),
+    ),
+  };
 };
 
 const parseSourceMap = (
@@ -598,6 +623,26 @@ const collectSourceMapOriginals = (
     limitation: null,
   };
 };
+
+/** Group inline HTML script bodies by their HTML file, in document order. */
+export const groupHtmlInlineScripts = (
+  scripts: readonly JavaScriptHtmlInlineScriptObservation[],
+): ReadonlyMap<string, readonly JavaScriptHtmlInlineScriptObservation[]> => {
+  const byPath = new Map<string, JavaScriptHtmlInlineScriptObservation[]>();
+  for (const script of scripts) {
+    const existing = byPath.get(script.html_path);
+    if (existing === undefined) byPath.set(script.html_path, [script]);
+    else existing.push(script);
+  }
+  return byPath;
+};
+
+/** Name the HTML file and lines whose inline JavaScript was not analyzed. */
+export const htmlInlineScriptLimitation = (
+  path: string,
+  scripts: readonly JavaScriptHtmlInlineScriptObservation[],
+): string =>
+  `${path} has ${String(scripts.length)} inline JavaScript ${scripts.length === 1 ? "body" : "bodies"} starting at line${scripts.length === 1 ? "" : "s"} ${scripts.map(({ location }) => String(location.start.line)).join(", ")} that ${scripts.length === 1 ? "was" : "were"} not analyzed; endpoints, storage, imports and other facts in ${scripts.length === 1 ? "it" : "them"} are absent from the evidence.`;
 
 const unavailableSourceMap = (
   file: JavaScriptArtifactFile,

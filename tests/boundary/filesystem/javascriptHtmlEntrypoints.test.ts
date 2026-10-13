@@ -191,3 +191,98 @@ const htmlScriptRanges = (html: string) => {
   }
   return ranges;
 };
+
+it("reports unanalyzed inline HTML scripts instead of claiming complete coverage", async () => {
+  const root = await createTestTempDirectory("rea-html-inline-scripts-");
+  const html = [
+    "<!doctype html><html><head>",
+    '<script src="cordova.js"></script>',
+    '<script type="application/ld+json">{"@type":"Thing"}</script>',
+    "</head><body>",
+    "<script>",
+    'function startGame(){ fetch("https://api.example.test/score"); }',
+    "</script>",
+    '<script type="module">import { x } from "./mod.js"; console.log(x);</script>',
+    "</body></html>",
+  ].join("\n");
+  await mkdir(join(root, "www"));
+  await Promise.all([
+    writeFile(
+      join(root, "package.json"),
+      JSON.stringify({ name: "game", version: "1.0.0" }),
+    ),
+    writeFile(join(root, "www", "index.html"), html),
+    writeFile(join(root, "www", "cordova.js"), "globalThis.cordova = {};"),
+  ]);
+
+  const result = await reconstructJavaScriptArtifact({ input_path: root });
+  const gaps = result.graph.nodes.filter(
+    ({ kind, observations }) =>
+      kind === "unknown" &&
+      observations.some(
+        ({ properties }) =>
+          properties.operation === "parse-html-inline-scripts",
+      ),
+  );
+
+  expect(result.graph.coverage.status).toBe("partial");
+  expect(gaps).toHaveLength(1);
+  expect(gaps[0]?.observations[0]).toMatchObject({
+    properties: {
+      path: "www/index.html",
+      inline_scripts: [
+        {
+          script_type: "classic",
+          location: {
+            start: { line: 5, column: 8 },
+            end: { line: 7, column: 0 },
+          },
+        },
+        {
+          script_type: "module",
+          location: {
+            start: { line: 8, column: 22 },
+            end: { line: 8, column: 67 },
+          },
+        },
+      ],
+    },
+    evidence: {
+      state: "unavailable",
+      artifact: {
+        sha256: createHash("sha256").update(html).digest("hex"),
+      },
+      coverage: { status: "partial" },
+    },
+  });
+  expect(result.graph.limitations).toContain(
+    "www/index.html has 2 inline JavaScript bodies starting at lines 5, 8 that were not analyzed; endpoints, storage, imports and other facts in them are absent from the evidence.",
+  );
+  // The external script is still projected as before.
+  expect(
+    result.graph.edges.some(
+      ({ relation, properties }) =>
+        relation === "loads" && properties.resolved_path === "www/cordova.js",
+    ),
+  ).toBe(true);
+});
+
+it("keeps complete coverage when HTML has only external scripts and data blocks", async () => {
+  const root = await createTestTempDirectory("rea-html-no-inline-scripts-");
+  await Promise.all([
+    writeFile(
+      join(root, "index.html"),
+      '<script src="actual.js"></script><script type="importmap">{"imports":{}}</script><script>  </script>',
+    ),
+    writeFile(join(root, "actual.js"), "globalThis.ownedActual = true;"),
+  ]);
+
+  const result = await reconstructJavaScriptArtifact({ input_path: root });
+
+  expect(result.graph.coverage.status).toBe("complete");
+  expect(
+    result.graph.limitations.some((limitation) =>
+      limitation.includes("inline JavaScript"),
+    ),
+  ).toBe(false);
+});

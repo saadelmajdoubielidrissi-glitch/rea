@@ -41,6 +41,7 @@ it("retains exact opening-tag offsets rather than the script body", () => {
   const text = `${prefix}${opening}ignored body</script>`;
   expect(htmlArtifactReferences(text)).toEqual({
     baseHref: null,
+    inlineScripts: [],
     scripts: [
       {
         scriptPath: "actual.js",
@@ -67,4 +68,55 @@ it("traverses deep valid document content without recursive stack growth", () =>
   expect(
     htmlArtifactReferences(text).scripts.map(({ scriptPath }) => scriptPath),
   ).toEqual(["actual.js"]);
+});
+
+it.each([
+  ["<script>run();</script>", ["classic"]],
+  ['<script type="">run();</script>', ["classic"]],
+  ['<script type=" Text/JavaScript ">run();</script>', ["classic"]],
+  ['<script type="application/x-javascript">run();</script>', ["classic"]],
+  ['<script language="javascript">run();</script>', ["classic"]],
+  ['<script language="">run();</script>', ["classic"]],
+  ['<script type="MODULE">import "./x.js";</script>', ["module"]],
+  ["<script nomodule>run();</script>", ["classic"]],
+  // A src attribute, even an empty one, means the browser ignores the body.
+  ['<script src="actual.js">run();</script>', []],
+  ['<script src="">run();</script>', []],
+  ["<script>  \n\t </script>", []],
+  ['<script type="application/json">{"a":1}</script>', []],
+  ['<script type="application/ld+json">{}</script>', []],
+  ['<script type="importmap">{"imports":{}}</script>', []],
+  ['<script type="speculationrules">{}</script>', []],
+  ['<script type="text/template"><p>x</p></script>', []],
+  ['<script language="vbscript">run()</script>', []],
+  ["<!-- <script>run();</script> -->", []],
+  ["<template><script>run();</script></template>", []],
+  ["<svg><script>run();</script></svg>", []],
+])("classifies inline JavaScript in %s", (text, expected) => {
+  expect(
+    htmlArtifactReferences(text).inlineScripts.map(
+      ({ scriptType }) => scriptType,
+    ),
+  ).toEqual(expected);
+});
+
+it("retains exact inline script body offsets, including unclosed scripts", () => {
+  const prefix = "<!doctype html>\n<script>";
+  const body = "\nfetch('/api');\n";
+  const closed = `${prefix}${body}</script><p>after</p>`;
+  expect(htmlArtifactReferences(closed).inlineScripts).toEqual([
+    {
+      scriptType: "classic",
+      startOffset: prefix.length,
+      endOffset: prefix.length + body.length,
+    },
+  ]);
+  const unclosed = `${prefix}${body}`;
+  expect(htmlArtifactReferences(unclosed).inlineScripts).toEqual([
+    {
+      scriptType: "classic",
+      startOffset: prefix.length,
+      endOffset: unclosed.length,
+    },
+  ]);
 });

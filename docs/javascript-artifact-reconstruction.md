@@ -619,3 +619,9 @@ Unresolved HTML references retain their declaration, source range, and resolutio
 reason in the renderer observations.
 HTML script source ranges follow the HTML parser across LF, CRLF, and bare CR
 line endings, preserving UTF-16 columns.
+Inline JavaScript in local HTML, meaning classic or module `<script>` bodies
+without a `src` attribute, is not analyzed. Each HTML file that has one gets an
+unknown `parse-html-inline-scripts` scope listing every body's script type and
+source range, the graph names the file and lines in its limitations, and
+coverage is partial. Import maps, speculation rules, data blocks, and blank
+bodies are not JavaScript and are not reported.

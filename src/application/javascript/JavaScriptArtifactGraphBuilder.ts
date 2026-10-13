@@ -176,6 +176,7 @@ const graphCoverage = (context: JavaScriptArtifactGraphContext) => {
     ) ||
     context.analysis.parse_failures > 0 ||
     context.fileSet.invalid_utf8_files > 0 ||
+    context.analysis.html_inline_scripts.length > 0 ||
     sourceMapPolicyGap ||
     malformedStructuredData ||
     partialJavaScript;

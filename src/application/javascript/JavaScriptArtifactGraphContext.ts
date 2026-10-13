@@ -103,6 +103,8 @@ export interface UnavailableParseInput {
   readonly limitation: string;
   readonly failure?: JsonValue;
   readonly limits?: JavaScriptArtifactGraphCoverage["limits"];
+  /** Structured details of the gap, such as the exact omitted locations. */
+  readonly details?: Readonly<Record<string, JsonValue>>;
 }
 
 /** Add a direct artifact-containment edge. */
@@ -192,6 +194,7 @@ export const addUnavailableStaticParseScope = (
           ...(input.failure === undefined
             ? {}
             : { analysis_failure: input.failure }),
+          ...input.details,
         },
         evidence: unavailableAstEvidence({
           sha256: input.file.sha256,
