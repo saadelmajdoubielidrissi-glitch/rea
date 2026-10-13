@@ -24,6 +24,7 @@ import {
   type JsonValue,
 } from "../domain/jsonValue.js";
 import { err, ok } from "../domain/result.js";
+import { ProviderCleanupError } from "../domain/providerCleanupError.js";
 import { ProviderAdapterError } from "../domain/providerAdapterError.js";
 import type { Logger } from "pino";
 import { GhidraClient } from "./GhidraClient.js";
@@ -38,6 +39,7 @@ import { AnalysisCancelledError } from "../domain/analysisErrorCore.js";
 import { resolveGhidraAnalysisSeeds } from "./GhidraAnalysisSeeds.js";
 import {
   admitGhidraLanguageOverride,
+  GhidraLanguageCatalogCleanupError,
   readGhidraLanguageCatalog,
 } from "./GhidraLanguageCatalog.js";
 import {
@@ -216,15 +218,7 @@ export class GhidraProvider implements AnalysisProviderCandidate {
       try {
         catalog = await readGhidraLanguageCatalog(installation.installDir);
       } catch (cause: unknown) {
-        return err(
-          new ProviderAdapterError("ghidra", "resolve_analysis_profile", {
-            cause,
-            diagnostics: {
-              reason:
-                "Could not read the installed Ghidra language definitions.",
-            },
-          }),
-        );
+        return err(languageCatalogFailure(cause));
       }
       const refused = admitGhidraLanguageOverride(
         override,
@@ -348,4 +342,30 @@ const inspectWindowsP0TargetSupport = (
     reason: null,
     diagnostics,
   };
+};
+
+/** Keep unconfirmed catalog cleanup visible instead of a plain read failure. */
+const languageCatalogFailure = (cause: unknown): ProviderAdapterError => {
+  if (!(cause instanceof GhidraLanguageCatalogCleanupError))
+    return new ProviderAdapterError("ghidra", "resolve_analysis_profile", {
+      cause,
+      diagnostics: {
+        reason: "Could not read the installed Ghidra language definitions.",
+      },
+    });
+  const { readFailure } = cause;
+  return new ProviderCleanupError(
+    "ghidra",
+    cause.paths,
+    {
+      reason: cause.message,
+      read_failure:
+        readFailure === undefined
+          ? null
+          : readFailure instanceof Error
+            ? readFailure.message
+            : String(readFailure),
+    },
+    { cause, operation: "resolve_analysis_profile" },
+  );
 };
