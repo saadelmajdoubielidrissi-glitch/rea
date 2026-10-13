@@ -12,6 +12,7 @@ import {
 import { exec } from "./lib/verify-package-core.mjs";
 import { createVerifierRun, completeVerifierRun } from "./lib/verifier-run.mjs";
 import { createOpenAiModelFixture } from "./verify/clients/model-fixture.mjs";
+import { isPathWithinRoot } from "../dist/domain/localPath.js";
 
 assert(
   process.platform !== "win32",
@@ -265,7 +266,8 @@ try {
         assert(
           parsed.plannedActions.every(
             (a) =>
-              a.target === configPath || a.target.startsWith(skillDirectory),
+              a.target === configPath ||
+              isPathWithinRoot(skillDirectory, a.target),
           ),
         );
       }
