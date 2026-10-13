@@ -42,6 +42,15 @@ import {
 type PropertyPath = JavaScriptSemanticPropertyPath;
 type ValueEffect = "write" | "escape";
 
+/** Alias-state capture identity: binding id plus origin and owner node spans. */
+type SemanticMutationCapture = readonly [
+  string,
+  number | null | undefined,
+  number | null | undefined,
+  number | null | undefined,
+  number | null | undefined,
+];
+
 /** Preserve uncertainty from property writes and references exposed to calls, yielding during traversal and fixpoint iteration. */
 export function* collectSemanticMemberMutationsSteps(
   program: t.Program,
@@ -114,6 +123,25 @@ export function* collectSemanticMemberMutationsSteps(
         ...(ownerInitializer === undefined ? {} : { ownerInitializer }),
       },
     ];
+    // Consecutive work items usually share one capture (an expansion pushes
+    // several items with the same origin), and every item re-derives its key
+    // before any dedup check, so keep the last encoding for reuse.
+    let recentCapture: SemanticMutationCapture | undefined;
+    let recentCaptureKey = "";
+    const captureKeyOf = (capture: SemanticMutationCapture): string => {
+      if (
+        recentCapture !== undefined &&
+        recentCapture[0] === capture[0] &&
+        recentCapture[1] === capture[1] &&
+        recentCapture[2] === capture[2] &&
+        recentCapture[3] === capture[3] &&
+        recentCapture[4] === capture[4]
+      )
+        return recentCaptureKey;
+      recentCapture = capture;
+      recentCaptureKey = JSON.stringify(capture);
+      return recentCaptureKey;
+    };
     // Visit shallower alias traversals first so their exact prefixes suppress
     // longer loop paths before those paths enumerate every assignment order.
     for (let cursor = 0; cursor < pending.length; cursor++) {
@@ -142,21 +170,26 @@ export function* collectSemanticMemberMutationsSteps(
         // An alias restored from a saved reference can revisit the same binding
         // at an earlier capture or a shorter getter-receiver path. Only a
         // repeated capture and path closes a cycle.
-        const capture = [
+        const capture: SemanticMutationCapture = [
           binding.bindingId,
           current.originAt?.start,
           current.originAt?.end,
           current.ownerInitializer?.start,
           current.ownerInitializer?.end,
         ];
-        const lifetime = JSON.stringify([...capture, current.path]);
+        // The capture key is the JSON array prefix of the lifetime key, so the
+        // lifetime is derived by concatenation instead of re-encoding the
+        // capture plus path on every work-list item. Undefined capture slots
+        // become null in JSON.stringify on both sides, keeping the keys equal.
+        const captureKey = captureKeyOf(capture);
+        const capturePrefix = captureKey.slice(0, -1);
+        const lifetime = `${capturePrefix},${JSON.stringify(current.path)}]`;
         if (current.bindings.has(lifetime)) continue;
         // A self alias such as `node = node[key]` revisits its capture with the
         // same prefix added on every cycle, so exact paths never repeat. When
         // that prefix can never be pruned, escaping it once covers every longer
         // effect, including writes below shared children.
         // Only a capture already on this alias chain can repeat a prefix.
-        const captureKey = JSON.stringify(capture);
         const revisited = current.bindings.has(captureKey);
         let repeatedPrefix: PropertyPath | undefined;
         for (
@@ -165,7 +198,9 @@ export function* collectSemanticMemberMutationsSteps(
           start++
         ) {
           const suffix = current.path.slice(start);
-          if (!current.bindings.has(JSON.stringify([...capture, suffix])))
+          if (
+            !current.bindings.has(`${capturePrefix},${JSON.stringify(suffix)}]`)
+          )
             continue;
           repeatedPrefix = current.path.slice(0, start);
           break;
@@ -229,19 +264,19 @@ export function* collectSemanticMemberMutationsSteps(
         }
         // Keep an antichain of exact paths. Widening distinct member keys would
         // also invalidate unrelated siblings that never reach this effect.
-        const pathState = JSON.stringify([
-          binding.bindingId,
-          effect,
+        // \u0001-separated fields with a JSON-escaped binding id keep this
+        // encoding injective; its format only matters inside coveringPaths.
+        const pathState = `${JSON.stringify(binding.bindingId)}\u0001${
+          effect
+        }\u0001${
           // Short writes stop at owned literal slots, whereas longer writes
           // reach shared children. Only equal-depth writes cover one another.
-          effect === "write" ? path.length : null,
-          mutation?.start,
-          mutation?.end,
-          current.originAt?.start,
-          current.originAt?.end,
-          current.ownerInitializer?.start,
-          current.ownerInitializer?.end,
-        ]);
+          effect === "write" ? path.length : -1
+        }\u0001${mutation?.start ?? -1}\u0001${mutation?.end ?? -1}\u0001${
+          current.originAt?.start ?? -1
+        }\u0001${current.originAt?.end ?? -1}\u0001${
+          current.ownerInitializer?.start ?? -1
+        }\u0001${current.ownerInitializer?.end ?? -1}`;
         let covering = coveringPaths.get(pathState);
         if (covering === undefined) {
           covering = new SemanticPropertyPathCoverage();
@@ -270,7 +305,9 @@ export function* collectSemanticMemberMutationsSteps(
         const primitiveWrite =
           value?.status === "literal" || value?.status === "union";
         recordedEffects.add(identity);
-        const nested = new Set([...current.bindings, lifetime, captureKey]);
+        const nested = new Set(current.bindings);
+        nested.add(lifetime);
+        nested.add(captureKey);
         // Returning a literal's receiver reaches that allocation, not the
         // binding's older values read while evaluating its initializer.
         const origins =
