@@ -155,7 +155,7 @@ it("keeps ambiguous endpoint candidates distinct through CLI and MCP", async () 
   const source = `fetch("login"); http.get("/api/users");
     form.get("passwordControl"); translate.get("ADDRESS_ADDED");
     cookie.put("token", value); request("POST", target);
-    snackBar.open(message, "X");`;
+    snackBar.open(message, "X");\n${'form.get("passwordControl");\n'.repeat(2_000)}`;
   const browser = await startFakeCdpBrowser({
     commandResult: (command) =>
       command.method === "Debugger.getScriptSource"

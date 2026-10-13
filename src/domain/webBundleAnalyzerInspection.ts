@@ -273,8 +273,9 @@ const addEndpointCandidate = (
     script.script_key,
     value,
     detector,
-    node.start ?? null,
   ]);
+  // This is a per-script candidate inventory, not a callsite list. Keep the
+  // first representative source position without multiplying inline records.
   addUnique(accumulator, key, () =>
     accumulator.inferences.push({
       kind: "endpoint_candidate",

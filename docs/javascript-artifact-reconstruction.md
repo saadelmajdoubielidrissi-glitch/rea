@@ -248,6 +248,11 @@ its application-graph observation and call edge carry low-confidence inference
 Evidence. Captured web bundles return these values under
 `inferences` with `kind: "endpoint_candidate"`, preserving the script digest,
 source location and detector instead of adding them to `observations.endpoints`.
+Captured-bundle candidates are deduplicated per script, value and detector;
+the basis location is the first matching site, not an inventory of occurrences
+or a runtime call count. The bundle result retains source digests, not complete
+script text. Inspect captured script sources separately when all sites are
+needed, and match their artifact digest before treating them as the same source.
 Explicit URL/path literals and `fetch("login")` retain their existing syntax
 findings. Neither establishes a network request at runtime. Dynamic receivers,
 computed URLs and request overloads still need independent evidence.

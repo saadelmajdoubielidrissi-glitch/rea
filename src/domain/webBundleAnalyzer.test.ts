@@ -374,7 +374,7 @@ describe("web bundle API classification parity", () => {
   });
 });
 
-describe("web bundle configuration and navigation parity", () => {
+describe("web bundle endpoint candidate classification", () => {
   it("keeps ambiguous HTTP-method arguments as candidates instead of endpoint observations", () => {
     const source = `
       fetch("login");
@@ -431,6 +431,58 @@ describe("web bundle configuration and navigation parity", () => {
     expect(webBundleAnalysisSchema.parse(result)).toEqual(result);
   });
 
+  it("deduplicates repeated candidate sites while keeping script, value and detector identity", () => {
+    const source = `${'form.get("name");\n'.repeat(5_000)}translate.get("name");\nform.get("other");`;
+    const captured = inspection(source);
+    const first = captured.scripts.items[0];
+    if (first === undefined) throw new Error("Missing captured script fixture");
+    const secondKey = `scr_${"2".repeat(64)}`;
+    const result = analyzeCapturedWebBundle({
+      ...captured,
+      scripts: {
+        total: 2,
+        items: [
+          first,
+          {
+            ...first,
+            script_key: secondKey,
+            url: `${origin}/assets/second.js`,
+          },
+        ],
+      },
+    });
+    const candidates = result.inferences.filter(
+      ({ kind }) => kind === "endpoint_candidate",
+    );
+    expect(candidates).toHaveLength(6);
+    for (const scriptKey of [first.script_key, secondKey]) {
+      const local = candidates.filter(
+        ({ basis }) => basis[0]?.script_key === scriptKey,
+      );
+      expect(
+        local.map(({ value, basis }) => [value, basis[0]?.detector]),
+      ).toEqual([
+        ["name", "call:form.get:unverified-network-receiver"],
+        ["name", "call:translate.get:unverified-network-receiver"],
+        ["other", "call:form.get:unverified-network-receiver"],
+      ]);
+      expect(local[0]?.basis[0]).toMatchObject({
+        line: 1,
+        column: 0,
+        artifact_sha256: createWebTextArtifact(source, "text/javascript")
+          .sha256,
+      });
+    }
+    expect(result.observations.endpoints).toEqual([]);
+    expect(result.capture.source_artifacts).toHaveLength(2);
+    expect(result.completeness).toMatchObject({
+      status: "complete",
+      parsed_scripts: 2,
+    });
+  });
+});
+
+describe("web bundle configuration and navigation parity", () => {
   it("keeps configuration setting reads out of endpoints in both analyzers", () => {
     const source = `
       import vscodeDefault from "vscode";
