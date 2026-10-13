@@ -150,6 +150,8 @@ const readLanguageDefinitionFile = async (
 export const readGhidraLanguageCatalog = async (
   installDir: string,
 ): Promise<readonly GhidraLanguageDefinition[]> => {
+  // Surface retained cleanup even when this catalog has no definitions to read.
+  await retryLanguageFileCleanup();
   const definitions: GhidraLanguageDefinition[] = [];
   for (const directory of await languageDirectories(installDir)) {
     let entries: string[];

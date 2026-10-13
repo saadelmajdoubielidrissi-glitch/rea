@@ -169,3 +169,14 @@ it("keeps the read failure when the close also fails", async () => {
     readFailure: expect.objectContaining({ message: "definition read failed" }),
   });
 });
+
+it("reports retained cleanup for a catalog without definitions", async () => {
+  control("pending.ldefs", { closeFails: true });
+  await expect(
+    readGhidraLanguageCatalog(await installation("pending")),
+  ).rejects.toBeInstanceOf(GhidraLanguageCatalogCleanupError);
+  const empty = await createTestTempDirectory("rea-ghidra-ldefs-empty-");
+  await expect(readGhidraLanguageCatalog(empty)).rejects.toMatchObject({
+    paths: [expect.stringContaining("pending.ldefs")],
+  });
+});
