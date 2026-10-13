@@ -53,10 +53,10 @@ const closeLanguageFile = async (
     pendingLanguageFileCleanup.delete(file);
     return undefined;
   } catch (cause: unknown) {
-    // An invalidated descriptor rejects every retry, so retaining it would
-    // block later reads without ever confirming cleanup.
-    if (file.owner.handle.fd >= 0) pendingLanguageFileCleanup.add(file);
-    else pendingLanguageFileCleanup.delete(file);
+    // Descriptor invalidation does not prove that this owner confirmed close.
+    // Keep even sticky failures in the lifecycle scope so later reads surface
+    // the unresolved cleanup instead of silently abandoning ownership.
+    pendingLanguageFileCleanup.add(file);
     return cause;
   }
 };

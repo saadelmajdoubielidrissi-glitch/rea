@@ -306,6 +306,10 @@ export class AnalysisProviderRegistry {
         throw new TypeError("Cancelled candidate evaluation disappeared");
       return result.value;
     });
+    const cleanupFailure = evaluations.find(
+      ({ profileError }) => profileError?.cleanupIncomplete === true,
+    )?.profileError;
+    if (cleanupFailure !== undefined) return err(cleanupFailure);
     const statuses = evaluations.map(({ status }) => status);
     const usable = evaluations.filter(
       (

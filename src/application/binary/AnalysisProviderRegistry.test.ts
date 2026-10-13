@@ -13,6 +13,7 @@ import {
 import { createAnalysisProfile } from "../../domain/analysisProfile.js";
 import type { BinaryTarget } from "../../domain/binaryTargetTypes.js";
 import { ProviderAdapterError } from "../../domain/providerAdapterError.js";
+import { ProviderCleanupError } from "../../domain/providerCleanupError.js";
 import { ProviderSelectionError } from "../../domain/providerSelectionError.js";
 import { projectAnalysisError } from "../../domain/analysisErrorProjection.js";
 import { err, ok } from "../../domain/result.js";
@@ -216,6 +217,36 @@ describe("analysis provider registry: binding failures and cancellation", () => 
       _tag: "ProviderAdapterError",
       providerId: "failed",
     });
+  });
+
+  it("aborts automatic selection when a provider reports unconfirmed cleanup", async () => {
+    const ghidra = candidate("ghidra");
+    const alternate = candidate("hopper");
+    const cleanupFailure = new ProviderCleanupError(
+      "ghidra",
+      ["/opt/ghidra/data/languages/x86.ldefs"],
+      { reason: "descriptor close failed" },
+      { operation: "resolve_analysis_profile" },
+    );
+    const provider: AnalysisProviderCandidate = {
+      ...ghidra.provider,
+      resolveAnalysisProfile: () => Promise.resolve(err(cleanupFailure)),
+    };
+
+    const selected = await new AnalysisProviderRegistry([
+      alternate.provider,
+      provider,
+    ]).select(DATABASE_TARGET);
+
+    expect(selected).toMatchObject({
+      ok: false,
+      error: {
+        _tag: "ProviderAdapterError",
+        providerId: "ghidra",
+        cleanupIncomplete: true,
+      },
+    });
+    expect(alternate.created).toEqual([]);
   });
 
   it("cancels a pending profile probe even when the adapter ignores its signal", async () => {

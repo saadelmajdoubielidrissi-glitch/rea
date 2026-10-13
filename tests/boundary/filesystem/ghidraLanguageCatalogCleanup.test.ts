@@ -77,6 +77,8 @@ vi.mock("node:fs/promises", async (importOriginal) => {
   };
 });
 
+let preserveUnconfirmedOwner = false;
+
 const control = (name: string, overrides: Partial<FileControl> = {}) => {
   const value: FileControl = {
     closeFails: false,
@@ -104,19 +106,14 @@ const installation = async (name: string): Promise<string> => {
 
 // Let every retained owner close, then drain them through a healthy read.
 afterEach(async () => {
+  if (preserveUnconfirmedOwner) {
+    preserveUnconfirmedOwner = false;
+    controls.clear();
+    return;
+  }
   for (const value of controls.values()) value.closeFails = false;
   await readGhidraLanguageCatalog(await installation("drain"));
   controls.clear();
-});
-
-it("does not block later reads on a close that can never be retried", async () => {
-  control("broken.ldefs", { closeFails: true, invalidateOnFailure: true });
-  await expect(
-    readGhidraLanguageCatalog(await installation("broken")),
-  ).rejects.toBeInstanceOf(GhidraLanguageCatalogCleanupError);
-  expect(await readGhidraLanguageCatalog(await installation("x86"))).toEqual([
-    { id: "x86:LE:32:default", compilerSpecIds: [] },
-  ]);
 });
 
 it("retries a retained close before the next read", async () => {
@@ -179,4 +176,28 @@ it("reports retained cleanup for a catalog without definitions", async () => {
   await expect(readGhidraLanguageCatalog(empty)).rejects.toMatchObject({
     paths: [expect.stringContaining("pending.ldefs")],
   });
+});
+
+it("retains an invalidated descriptor owner and keeps later reads blocked", async () => {
+  const broken = control("broken.ldefs", {
+    closeFails: true,
+    invalidateOnFailure: true,
+  });
+  const first = await readGhidraLanguageCatalog(
+    await installation("broken"),
+  ).catch((cause: unknown) => cause);
+  expect(first).toBeInstanceOf(GhidraLanguageCatalogCleanupError);
+  expect(first).toMatchObject({
+    paths: [expect.stringContaining("broken.ldefs")],
+  });
+
+  const later = await readGhidraLanguageCatalog(
+    await installation("x86"),
+  ).catch((cause: unknown) => cause);
+  expect(later).toBeInstanceOf(GhidraLanguageCatalogCleanupError);
+  expect(later).toMatchObject({
+    paths: [expect.stringContaining("broken.ldefs")],
+  });
+  expect(broken.closeCalls).toBe(1);
+  preserveUnconfirmedOwner = true;
 });
