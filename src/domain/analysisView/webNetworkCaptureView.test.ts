@@ -174,3 +174,151 @@ it("rejects invalid ordinal coverage in a borrowed parent", () => {
   );
   expect(result.ok).toBe(false);
 });
+
+const nativePreview = (
+  format: "mitmproxy" | "har",
+  request: Readonly<Record<string, unknown>>,
+) => {
+  const artifact = {
+    path: "/recordings/flows.mitm",
+    sha256: "c".repeat(64),
+    bytes: 100,
+  };
+  const decoder = { id: "fixture", name: "Fixture", version: "1" };
+  const report = webNetworkCaptureSchema.parse({
+    artifact,
+    decoder,
+    format,
+    runtime_attribution: "unknown",
+    limitations: [],
+    container: {
+      reported: null,
+      numeric_literals: [],
+      redactions: [],
+      records_pointer: null,
+    },
+    total_records: 1,
+    records: [
+      {
+        ordinal: 0,
+        location: { kind: "byte-range", offset: 0, bytes: 10 },
+        reported: {
+          type: "http",
+          request: { ...request, headers: [["Accept", "*/*"]] },
+          response: {
+            http_version: "HTTP/1.1",
+            status_code: 404,
+            reason: "Not Found",
+            content: "omitted body",
+          },
+        },
+        binary_fields: [],
+        numeric_literals: [
+          {
+            pointer: "/response/status_code",
+            producer_type: "integer",
+            literal: "404",
+          },
+        ],
+        redactions: [],
+        limitations: [],
+      },
+    ],
+  });
+  const evidence = createEvidence({ ...artifact, format: "file" }, decoder, {
+    operation: "inspect_web_network_capture",
+    parameters: {},
+    result: report,
+    confidence: "observed",
+    authority: "historical-reference",
+  });
+  const preview = projectAnalysisView(
+    {
+      evidenceId: evidence.evidence_id,
+      operation: evidence.operation,
+      normalizedResult: report,
+      subject: evidence.subject,
+      limitations: evidence.limitations,
+    },
+    { kind: "capture", detail: "preview", offset: 0, limit: 1 },
+  );
+  if (!preview.ok || preview.value.kind !== "capture")
+    throw new Error("Expected a capture preview page.");
+  return preview.value;
+};
+
+it("previews the mitmproxy request target and status code as headline fields", () => {
+  const preview = nativePreview("mitmproxy", {
+    host: "example.test",
+    port: 443,
+    method: "GET",
+    scheme: "https",
+    authority: "",
+    path: "/users/42",
+    http_version: "HTTP/1.1",
+  });
+  expect(preview).toMatchObject({
+    items: [
+      {
+        reported: {
+          type: "http",
+          request: {
+            method: "GET",
+            scheme: "https",
+            host: "example.test",
+            port: 443,
+            authority: "",
+            path: "/users/42",
+            http_version: "HTTP/1.1",
+          },
+          response: {
+            http_version: "HTTP/1.1",
+            status_code: 404,
+            reason: "Not Found",
+          },
+        },
+        numeric_literals: [
+          {
+            pointer: "/response/status_code",
+            producer_type: "integer",
+            literal: "404",
+          },
+        ],
+      },
+    ],
+  });
+  expect(JSON.stringify(preview)).not.toContain("Accept");
+  expect(JSON.stringify(preview)).not.toContain("omitted body");
+});
+
+it("previews the asterisk-form OPTIONS target", () => {
+  expect(
+    nativePreview("mitmproxy", { method: "OPTIONS", path: "*" }).items[0]
+      ?.reported,
+  ).toMatchObject({ request: { method: "OPTIONS", path: "*" } });
+});
+
+it.each([
+  [
+    "an ambiguous absolute path",
+    "mitmproxy",
+    "https:user:password@example.test/a",
+  ],
+  ["a network-path reference", "mitmproxy", "//user:password@example.test/a"],
+  [
+    "a slash-backslash reference",
+    "mitmproxy",
+    "/\\user:password@example.test/a",
+  ],
+  ["a slash-tab reference", "mitmproxy", "/\t/user:password@example.test/a"],
+  ["an oversized path", "mitmproxy", `/${"password".repeat(1024)}`],
+  ["a nested path value", "mitmproxy", { content: "password ".repeat(64) }],
+  ["a path in a non-mitmproxy record", "har", "/users/password"],
+] as const)("keeps %s out of the preview", (_label, format, path) => {
+  const preview = nativePreview(format, { method: "GET", path });
+  const [item] = preview.items;
+  expect(item?.reported).toMatchObject({ request: { method: "GET" } });
+  expect(JSON.stringify(item?.reported)).not.toContain("password");
+  if (format === "har")
+    expect(JSON.stringify(item?.reported)).not.toContain("status_code");
+});

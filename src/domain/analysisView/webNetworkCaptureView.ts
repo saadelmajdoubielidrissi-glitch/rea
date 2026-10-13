@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { AnalysisError } from "../analysisErrorBase.js";
 import { analysisInputErrorFromIssues } from "../inputIssueProjection.js";
 import type { JsonValue } from "../jsonValue.js";
+import { parseRecordedTransportUrl } from "../recordedTransportUrl.js";
 import { err, ok, type Result } from "../result.js";
 import {
   webNetworkCaptureRecordSchema,
@@ -62,8 +63,45 @@ const object = (
     ? value
     : null;
 
+const HEADLINE_FIELDS = [
+  "method",
+  "url",
+  "httpVersion",
+  "http_version",
+  "status",
+  "statusText",
+  "reason",
+];
+// Native mitmproxy flows report the request target in parts and the status
+// as status_code. They are previewed only for mitmproxy records, only as
+// bounded scalars, and the path only in origin or asterisk form with no
+// credentials under the recorded transport-URL interpretation: an absolute,
+// authority-bearing or ambiguous spelling may carry userinfo the native
+// redaction does not recognise. Excluded values stay in complete record pages.
+const MITMPROXY_HEADLINE_FIELDS = [
+  "scheme",
+  "host",
+  "port",
+  "authority",
+  "path",
+  "status_code",
+];
+const MITMPROXY_HEADLINE_MAX_LENGTH = 8 * 1024;
+const mitmproxyHeadline = (field: string, value: JsonValue): boolean => {
+  if (value !== null && typeof value === "object") return false;
+  if (typeof value === "string" && value.length > MITMPROXY_HEADLINE_MAX_LENGTH)
+    return false;
+  if (field === "path")
+    return (
+      typeof value === "string" &&
+      (value === "*" || (value.startsWith("/") && !value.startsWith("//"))) &&
+      parseRecordedTransportUrl(value).credentials === null
+    );
+  return field !== "authority" || !String(value).includes("@");
+};
+
 /** Select already parsed producer facts without interpreting HTTP or payload bytes again. */
-const preview = (record: WebNetworkCaptureRecord) => {
+const preview = (record: WebNetworkCaptureRecord, format: string) => {
   const source = object(record.reported);
   const reported: Record<string, JsonValue> = {};
   const selectedPointers = new Set<string>();
@@ -83,18 +121,22 @@ const preview = (record: WebNetworkCaptureRecord) => {
         continue;
       }
       const selected: Record<string, JsonValue> = {};
-      for (const field of [
-        "method",
-        "url",
-        "httpVersion",
-        "http_version",
-        "status",
-        "statusText",
-        "reason",
-      ])
+      for (const field of HEADLINE_FIELDS)
         if (Object.hasOwn(fields, field) && fields[field] !== undefined) {
           selected[field] = fields[field];
           selectedPointers.add(`/${key}/${field}`);
+        }
+      if (format === "mitmproxy")
+        for (const field of MITMPROXY_HEADLINE_FIELDS) {
+          const fieldValue = fields[field];
+          if (
+            Object.hasOwn(fields, field) &&
+            fieldValue !== undefined &&
+            mitmproxyHeadline(field, fieldValue)
+          ) {
+            selected[field] = fieldValue;
+            selectedPointers.add(`/${key}/${field}`);
+          }
         }
       reported[key] = selected;
     }
@@ -245,7 +287,9 @@ export const projectWebNetworkCaptureView = (
     view,
     ...shared,
     items: captureViewItemsSchema.parse(
-      view.detail === "complete" ? records : records.map(preview),
+      view.detail === "complete"
+        ? records
+        : records.map((record) => preview(record, report.format)),
     ),
     coverage: pageViewCoverage(
       view.offset,
