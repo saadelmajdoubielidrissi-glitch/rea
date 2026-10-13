@@ -359,6 +359,10 @@ const compareStepArtifacts = (
         input.beforeEvents.coverageReason,
         input.afterEvents.coverageReason,
       ),
+      familyIncomparableReason: eventFamilyCoverageReason(
+        input.beforeCapture,
+        input.afterCapture,
+      ),
     }),
   ];
 };
@@ -401,16 +405,16 @@ const compareScenarioEvents = (
           "Browser scenario",
         );
   const beforeSha256 =
-    isCaptured && beforeValue !== undefined
+    beforeState === "captured" && beforeValue !== undefined
       ? digestScenarioEvents(beforeValue, ordinaryBeforeDigest)
       : null;
   const afterSha256 =
-    isCaptured && afterValue !== undefined
+    afterState === "captured" && afterValue !== undefined
       ? digestScenarioEvents(afterValue, ordinaryAfterDigest)
       : null;
   const changedOrdinaryEvents =
     isCaptured && ordinaryBeforeDigest !== ordinaryAfterDigest;
-  if (changedOrdinaryEvents)
+  if (changedOrdinaryEvents && input.familyIncomparableReason === undefined)
     return {
       artifact: input.artifact,
       status: "changed",
@@ -424,7 +428,11 @@ const compareScenarioEvents = (
         reason: null,
       },
     };
-  if (!isCaptured || input.incomparableReason !== undefined)
+  if (
+    !isCaptured ||
+    input.incomparableReason !== undefined ||
+    input.familyIncomparableReason !== undefined
+  )
     return {
       artifact: input.artifact,
       status: "unknown",
@@ -436,6 +444,7 @@ const compareScenarioEvents = (
         before_sha256: beforeSha256,
         after_sha256: afterSha256,
         reason:
+          input.familyIncomparableReason ??
           input.incomparableReason ??
           `Artifact coverage is not comparable (${beforeState} before, ${afterState} after).`,
       },
@@ -501,6 +510,7 @@ interface CompareCapturedValuesInput<Value> {
   readonly beforeState?: BrowserScenarioEvidenceState;
   readonly afterState?: BrowserScenarioEvidenceState;
   readonly incomparableReason?: string | undefined;
+  readonly familyIncomparableReason?: string | undefined;
 }
 
 const compareCapturedValues = <Value>(
@@ -558,6 +568,7 @@ const compareCapturedValues = <Value>(
         before_sha256: beforeSha256,
         after_sha256: afterSha256,
         reason:
+          input.familyIncomparableReason ??
           input.incomparableReason ??
           `Artifact coverage is not comparable (${beforeState} before, ${afterState} after).`,
       },

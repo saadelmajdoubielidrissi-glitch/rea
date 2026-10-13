@@ -32,6 +32,7 @@ export const scenarioNetworkTransactions = (
       events: unknown[];
       predecessor: string | null;
       predecessorState: "root" | "unknown" | undefined;
+      predecessorConflict: boolean;
       stepIndex: number;
     }
   >();
@@ -78,15 +79,44 @@ export const scenarioNetworkTransactions = (
         events: [evidence],
         predecessor,
         predecessorState,
+        predecessorConflict:
+          event.kind !== "network-content" &&
+          request !== undefined &&
+          ((event.redirected_from_transaction_id !== null &&
+            event.redirected_from_transaction_id !==
+              request.redirected_from_transaction_id) ||
+            (event.redirected_from_transaction_state === "root" &&
+              request.redirected_from_transaction_id !== null)),
         stepIndex: requestStep ?? step,
       });
-    else previous.events.push(evidence);
+    else {
+      previous.events.push(evidence);
+      if (event.kind !== "network-content") {
+        const parent = event.redirected_from_transaction_id;
+        const state = event.redirected_from_transaction_state;
+        const knownParent = previous.predecessor;
+        if (parent !== null && knownParent !== null && parent !== knownParent)
+          previous.predecessorConflict = true;
+        else if (parent !== null && knownParent === null) {
+          previous.predecessor = parent;
+          previous.predecessorState = state;
+        } else if (parent === null && state === "root" && knownParent !== null)
+          previous.predecessorConflict = true;
+        else if (
+          parent === null &&
+          state === "root" &&
+          previous.predecessorState !== "root"
+        )
+          previous.predecessorState = "root";
+      }
+    }
   }
   const indices = new Map([...grouped.keys()].map((id, index) => [id, index]));
   return [...grouped.values()].map((node) => ({
     events: node.events,
-    predecessor:
-      node.predecessor === null
+    predecessor: node.predecessorConflict
+      ? -2
+      : node.predecessor === null
         ? node.predecessorState === "root"
           ? -1
           : -2

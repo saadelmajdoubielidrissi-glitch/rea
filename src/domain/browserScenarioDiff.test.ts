@@ -392,6 +392,35 @@ describe("browser scenario network event order", () => {
     }
   });
 
+  it("keeps contradictory phase ancestry unknown", () => {
+    const capture = concurrentCapture(["a", "b"], { a: 200, b: 404 });
+    const events = capture.events.items.map((event) =>
+      event.kind === "response" && event.transaction_id === "request-2"
+        ? { ...event, redirected_from_transaction_id: "request-1" }
+        : event,
+    );
+    const malformed = browserScenarioCaptureSchema.parse({
+      ...capture,
+      events: { ...capture.events, items: events },
+    });
+    const compared = compareBrowserScenarios(
+      compareBrowserScenariosInputSchema.parse({
+        before_scenario: malformed,
+        after_scenario: malformed,
+      }),
+    );
+    expect(compared.overall_status).toBe("unknown");
+    expect(
+      compared.steps.flatMap((step) => step.artifact_diffs),
+    ).toContainEqual(
+      expect.objectContaining({
+        artifact: "events",
+        status: "unknown",
+        reason: expect.stringContaining("Redirect predecessor"),
+      }),
+    );
+  });
+
   it("keeps normalization away from generated network fingerprints", () => {
     const rules = [..."0123456789abcdef"].map((match, index) => ({
       rule_id: `remove-fingerprint-hex-${String(index)}`,
