@@ -189,11 +189,13 @@ const inspectCall = (
     node.callee,
     openReceiverFacts.get(node.start ?? -1),
   );
-  if (endpoint !== undefined)
+  if (endpoint?.kind === "candidate")
+    addEndpointCandidate(script, node, name, endpoint.value, accumulator);
+  else if (endpoint !== undefined)
     addFinding({
       collection: accumulator.endpoints,
       script,
-      rawValue: endpoint,
+      rawValue: endpoint.value,
       mechanism: `call:${name}`,
       node,
       accumulator,
@@ -256,6 +258,32 @@ interface AddFindingContext {
   readonly node: t.Node;
   readonly accumulator: AnalysisAccumulator;
 }
+
+const addEndpointCandidate = (
+  script: IncludedScript,
+  node: t.Node,
+  name: string,
+  rawValue: string,
+  accumulator: AnalysisAccumulator,
+): void => {
+  const value = sanitizeEndpointCandidate(rawValue);
+  const detector = `call:${name}:unverified-network-receiver`;
+  const key = compositeKey([
+    "endpoint-candidate",
+    script.script_key,
+    value,
+    detector,
+    node.start ?? null,
+  ]);
+  addUnique(accumulator, key, () =>
+    accumulator.inferences.push({
+      kind: "endpoint_candidate",
+      value,
+      confidence: "low",
+      basis: [{ ...basis(script, detector), ...locationFields(node) }],
+    }),
+  );
+};
 
 const addFinding = (context: AddFindingContext): void => {
   const value = sanitizeEndpointCandidate(context.rawValue);
