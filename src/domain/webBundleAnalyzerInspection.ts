@@ -199,9 +199,8 @@ const inspectCall = (
       accumulator,
     });
   if (
-    (t.isCallExpression(node) || t.isNewExpression(node)) &&
-    (name.endsWith("modelContext.registerTool") ||
-      name === "modelContext.registerTool")
+    name.endsWith("modelContext.registerTool") ||
+    name === "modelContext.registerTool"
   )
     addWebMcpDeclaration(script, node, accumulator);
 };
@@ -271,7 +270,7 @@ const addFinding = (context: AddFindingContext): void => {
 
 const addWebMcpDeclaration = (
   script: IncludedScript,
-  node: t.CallExpression | t.NewExpression,
+  node: t.CallExpression | t.OptionalCallExpression | t.NewExpression,
   accumulator: AnalysisAccumulator,
 ): void => {
   const declaration = node.arguments[0];
