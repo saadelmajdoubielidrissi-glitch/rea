@@ -52,7 +52,12 @@ if (mode === "env-failure" || (probe === "-vmargs" && mode === "vm-failure")) {
 } else if (probe === "-envvars") {
   process.stdout.write(mode === "env-malformed" ? "invalid environment\\n" : "GHIDRA_MAXMEM=1G\\n");
 } else {
-  process.stdout.write(mode === "vm-malformed" ? "invalid JVM argument\\n" : "-Dfile.encoding=UTF8\\n");
+  const vmArguments = mode === "vm-malformed"
+    ? "invalid JVM argument\\n"
+    : mode === "os-arch-override"
+      ? "-Dos.arch=x86_64\\n"
+      : "-Dfile.encoding=UTF8\\n";
+  process.stdout.write(vmArguments);
 }
 `,
     { mode: 0o755 },
@@ -214,6 +219,17 @@ describe.skipIf(process.platform === "win32")(
           });
       },
     );
+
+    it("rejects LaunchSupport attempts to override the inspected JVM architecture", async () => {
+      const { session, launcher, analysisArguments } =
+        await fixture("os-arch-override");
+      const launched = await launcher.launch(session);
+      expect(launched.ok).toBe(false);
+      expect(analysisArguments).toEqual([]);
+      if (launched.ok)
+        throw new Error("Expected an architecture override failure");
+      expect(launched.error.message).toContain("may not override os.arch");
+    });
 
     it("bounds retained UTF-8 warnings and reports original byte counts", async () => {
       const { session, launcher } = await fixture("large");

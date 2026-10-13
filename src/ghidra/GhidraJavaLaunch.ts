@@ -83,6 +83,10 @@ export const ghidraJavaLaunch = async (options: {
     )
   )
     throw new Error("Invalid Ghidra LaunchSupport JVM argument");
+  if (vmArguments.some((argument) => /^-Dos\.arch(?:=|$)/u.test(argument)))
+    throw new Error(
+      "Ghidra LaunchSupport may not override os.arch; the native decompiler was validated for the inspected JVM architecture.",
+    );
   return {
     command,
     environment,
