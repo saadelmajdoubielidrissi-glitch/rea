@@ -50,17 +50,15 @@ const registerOverviewCommands = (
   // known, then apply the JavaScript default only in that lane. The owner
   // field fills an omission with that default, and an `.optional()` wrapper
   // keeps reporting it, so every binary target would look like an explicit
-  // policy. Listing `z.undefined()` first is what leaves an omitted option
-  // absent while the owner still validates a supplied value, and the owner's
-  // metadata is reapplied so help and `--schema` keep describing the option.
+  // policy. Remove the owner's default before making the CLI option optional;
+  // reapply its metadata so help and `--schema` keep describing the option.
   const ownerIntegrityPolicy =
     javascriptApplicationOptions.shape.integrityPolicy;
   const defaultIntegrityPolicy = ownerIntegrityPolicy.parse(undefined);
   const policyMetadata = ownerIntegrityPolicy.meta();
-  const omittableIntegrityPolicy = z.union([
-    z.undefined(),
-    ownerIntegrityPolicy,
-  ]);
+  const omittableIntegrityPolicy = ownerIntegrityPolicy
+    .removeDefault()
+    .optional();
   const laneIntegrityPolicy =
     policyMetadata === undefined
       ? omittableIntegrityPolicy

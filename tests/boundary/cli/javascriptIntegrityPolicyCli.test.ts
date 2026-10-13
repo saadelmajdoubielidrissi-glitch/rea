@@ -91,3 +91,16 @@ it("still routes a binary analyze target without an integrity policy", async () 
     stdout: expect.stringContaining("target does not exist"),
   });
 });
+
+it("advertises the optional integrity policy without an undefined union", async () => {
+  const schema = (await run(["analyze", "--schema"])) as {
+    options?: { properties?: { integrityPolicy?: unknown } };
+  };
+  const policy = schema.options?.properties?.integrityPolicy;
+  expect(policy).toMatchObject({
+    type: "string",
+    enum: ["fail", "record-and-continue"],
+    description: "Behavior when declared application integrity does not match",
+  });
+  expect(JSON.stringify(policy)).not.toContain("undefined");
+});
