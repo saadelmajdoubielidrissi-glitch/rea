@@ -44,6 +44,7 @@ const fixture = async () => {
   await mkdir(join(root, "src"));
   for (const path of [
     "scripts/run-development-tests.mjs",
+    "scripts/run-exact-tests.mjs",
     "scripts/lib/development-tests.mjs",
   ])
     await copyFile(join(process.cwd(), path), join(root, path));
@@ -75,7 +76,32 @@ const testCommand = (root: string, ...arguments_: string[]) =>
     ...arguments_,
   ]);
 
-describe("development test runner public CLI", () => {
+describe("development test runner exact selection", () => {
+  it.skipIf(process.platform !== "win32")(
+    "accepts the filesystem's case-insensitive file spelling",
+    async () => {
+      const root = await fixture();
+      await testCommand(root, "focused", "src/VALUE.test.ts");
+      expect(await readFile(join(root, "selected.txt"), "utf8")).toBe("1");
+    },
+  );
+
+  it.each(["local", "focused"])(
+    "runs only the exact selected file in %s mode",
+    async (mode) => {
+      const root = await fixture();
+      await mkdir(join(root, "src", "nested", "src"), { recursive: true });
+      await writeFile(
+        join(root, "src", "nested", "src", "value.test.ts"),
+        'import { it } from "vitest"; it("must not run", () => { throw new Error("unselected nested test ran"); });\n',
+      );
+      const result = await testCommand(root, mode, "src/value.test.ts");
+      expect(result.stdout).toContain("1 passed");
+      expect(result.stdout).not.toContain("nested/src/value.test.ts");
+      expect(await readFile(join(root, "selected.txt"), "utf8")).toBe("1");
+    },
+  );
+
   it("runs an explicitly selected source test on a clean tree without build artifacts", async () => {
     const root = await fixture();
     const { stdout: status } = await git(root, "status", "--porcelain");
@@ -84,6 +110,66 @@ describe("development test runner public CLI", () => {
     expect(await readFile(join(root, "selected.txt"), "utf8")).toBe("1");
   });
 
+  it("fails when any selected existing file is excluded from discovery", async () => {
+    const root = await fixture();
+    await writeFile(
+      join(root, "src", "excluded.test.ts"),
+      'import { it } from "vitest"; it("excluded", () => {});\n',
+    );
+    await writeFile(
+      join(root, "vitest.config.mjs"),
+      'export default { test: { projects: [{ test: { name: "domain", include: ["src/value.test.ts"] } }] } };\n',
+    );
+    await expect(
+      testCommand(root, "focused", "src/value.test.ts", "src/excluded.test.ts"),
+    ).rejects.toMatchObject({
+      code: 1,
+      stderr: expect.stringContaining(
+        "Selected test files were not discovered: src/excluded.test.ts",
+      ),
+    });
+  });
+
+  it("runs all selected files and preserves a selected test failure", async () => {
+    const root = await fixture();
+    await writeFile(
+      join(root, "src", "failure.test.ts"),
+      'import { it } from "vitest"; it("selected failure", () => { throw new Error("selected regression"); });\n',
+    );
+    await expect(
+      testCommand(root, "focused", "src/value.test.ts", "src/failure.test.ts"),
+    ).rejects.toMatchObject({
+      code: 1,
+      stdout: expect.stringContaining("1 failed | 1 passed"),
+      stderr: expect.stringContaining("selected regression"),
+    });
+    expect(await readFile(join(root, "selected.txt"), "utf8")).toBe("1");
+  });
+
+  it("retains each configured project for the selected file", async () => {
+    const root = await fixture();
+    await writeFile(
+      join(root, "vitest.config.mjs"),
+      'export default { test: { projects: ["domain", "evaluation"].map(name => ({ test: { name, include: ["src/value.test.ts"] } })) } };\n',
+    );
+    const result = await testCommand(root, "focused", "src/value.test.ts");
+    expect(result.stdout).toMatch(/Test Files\s+2 passed/u);
+  });
+
+  it("fails a selected file with no tests even when a peer passes", async () => {
+    const root = await fixture();
+    await writeFile(join(root, "src", "empty.test.ts"), "export {};\n");
+    await expect(
+      testCommand(root, "focused", "src/value.test.ts", "src/empty.test.ts"),
+    ).rejects.toMatchObject({
+      code: 1,
+      stderr: expect.stringContaining("No test suite found"),
+    });
+    expect(await readFile(join(root, "selected.txt"), "utf8")).toBe("1");
+  });
+});
+
+describe("development test runner public CLI", () => {
   it("plans an exact local test without building", async () => {
     const root = await fixture();
     const { stdout } = await testCommand(
