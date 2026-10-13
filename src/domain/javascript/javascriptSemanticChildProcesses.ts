@@ -247,14 +247,11 @@ const killSignalName = (
   state: JavaScriptSemanticAnalysisState,
 ): string | null => {
   const [signal] = args;
+  if (signal === undefined) return "SIGTERM";
+  const expression = unwrapJavaScriptExpression(signal).node;
   if (
-    signal === undefined ||
-    (signal !== undefined &&
-      isUnshadowedGlobal(
-        unwrapJavaScriptExpression(signal).node,
-        state,
-        "undefined",
-      ))
+    t.isUnaryExpression(expression, { operator: "void" }) ||
+    isUnshadowedGlobal(expression, state, "undefined")
   )
     return "SIGTERM";
   return dataEffectLiteralString(signal);

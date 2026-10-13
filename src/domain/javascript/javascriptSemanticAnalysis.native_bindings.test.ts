@@ -182,6 +182,8 @@ describe("JavaScript semantic analysis: child-process signals", () => {
         child.kill("SIGINT");
         child.kill(undefined);
         child.kill(undefined as NodeJS.Signals | undefined);
+        child.kill(void 0);
+        child.kill(void signal);
       }
       function shadowed(undefined) {
         const child = spawn("/bin/tool");
@@ -202,6 +204,8 @@ describe("JavaScript semantic analysis: child-process signals", () => {
       { signalName: null, resolution: "complete", linkedCount: 1 },
       { signalName: "SIGTERM", resolution: "complete", linkedCount: 1 },
       { signalName: "SIGINT", resolution: "complete", linkedCount: 1 },
+      { signalName: "SIGTERM", resolution: "complete", linkedCount: 1 },
+      { signalName: "SIGTERM", resolution: "complete", linkedCount: 1 },
       { signalName: "SIGTERM", resolution: "complete", linkedCount: 1 },
       { signalName: "SIGTERM", resolution: "complete", linkedCount: 1 },
       { signalName: null, resolution: "complete", linkedCount: 1 },
