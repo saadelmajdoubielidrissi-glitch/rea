@@ -43,7 +43,10 @@ import {
   type WebScreenshotDiff,
 } from "../domain/webScreenshot.js";
 import { AnalysisError } from "../domain/analysisErrorBase.js";
-import { AnalysisInputError } from "../domain/analysisErrorCore.js";
+import {
+  AnalysisCancelledError,
+  AnalysisInputError,
+} from "../domain/analysisErrorCore.js";
 import { BrowserObservationError } from "../domain/browserObservationError.js";
 import { ProviderAdapterError } from "../domain/providerAdapterError.js";
 import type { BrowserObservationOperation } from "../domain/browserObservationErrors.js";
@@ -164,6 +167,8 @@ export class CdpBrowserProvider implements BrowserObservationPort {
         ),
       );
     } catch (cause: unknown) {
+      if (options.signal?.aborted === true)
+        return err(new AnalysisCancelledError("analyze_web_bundle", { cause }));
       return err(providerError(cause, "analyze_web_bundle"));
     }
   }
@@ -335,6 +340,10 @@ const withTargetSession = async <
       );
     // An unadopted browser socket is closed here; closing is idempotent.
     await endpoint.connection?.close();
+    // Cleanup can observe an interrupt after work returns. Do not publish its
+    // result once cancellation arrived while the target session was closing.
+    if (options.signal?.aborted === true)
+      throw new AnalysisCancelledError(operation);
   }
 };
 
