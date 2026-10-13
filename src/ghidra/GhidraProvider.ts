@@ -353,18 +353,19 @@ const languageCatalogFailure = (cause: unknown): ProviderAdapterError => {
         reason: "Could not read the installed Ghidra language definitions.",
       },
     });
-  const { readFailure } = cause;
+  const message = (value: unknown): string =>
+    value instanceof Error ? value.message : String(value);
   return new ProviderCleanupError(
     "ghidra",
     cause.paths,
     {
       reason: cause.message,
+      close_failures: cause.paths.map((path, index) => ({
+        path,
+        error: message(cause.causes[index]),
+      })),
       read_failure:
-        readFailure === undefined
-          ? null
-          : readFailure instanceof Error
-            ? readFailure.message
-            : String(readFailure),
+        cause.readFailure === undefined ? null : message(cause.readFailure),
     },
     { cause, operation: "resolve_analysis_profile" },
   );

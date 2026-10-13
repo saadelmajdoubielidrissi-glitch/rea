@@ -10,16 +10,33 @@ import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 
 interface FileControl {
   closeFails: boolean;
+  /** Hold close() until every synchronized handle has reached it. */
+  synchronizedClose: boolean;
   invalidateOnFailure: boolean;
   readFails: boolean;
   invalidated: boolean;
   closeCalls: number;
 }
 
-// Per-file failure controls, keyed by definition file name.
-const { controls } = vi.hoisted(() => ({
-  controls: new Map<string, FileControl>(),
-}));
+// Per-file failure controls, keyed by definition file name, and a barrier
+// that releases synchronized closes only after all of them are pending.
+const { controls, barrier } = vi.hoisted(() => {
+  const state = { expected: 0, arrived: 0, release: () => {} };
+  const gate = new Promise<void>((resolve) => {
+    state.release = resolve;
+  });
+  return {
+    controls: new Map<string, FileControl>(),
+    barrier: {
+      state,
+      arrive: async () => {
+        state.arrived += 1;
+        if (state.arrived >= state.expected) state.release();
+        await gate;
+      },
+    },
+  };
+});
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>();
   return {
@@ -44,6 +61,8 @@ vi.mock("node:fs/promises", async (importOriginal) => {
             : real.read(...readArgs),
         close: async () => {
           control.closeCalls += 1;
+          if (control.synchronizedClose && control.closeCalls === 1)
+            await barrier.arrive();
           if (control.closeFails) {
             if (control.invalidateOnFailure) {
               await release();
@@ -61,6 +80,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 const control = (name: string, overrides: Partial<FileControl> = {}) => {
   const value: FileControl = {
     closeFails: false,
+    synchronizedClose: false,
     invalidateOnFailure: false,
     readFails: false,
     invalidated: false,
@@ -112,8 +132,15 @@ it("retries a retained close before the next read", async () => {
 });
 
 it("attempts every retained close and reports the remaining failures together", async () => {
-  const first = control("first.ldefs", { closeFails: true });
-  const second = control("second.ldefs", { closeFails: true });
+  const first = control("first.ldefs", {
+    closeFails: true,
+    synchronizedClose: true,
+  });
+  const second = control("second.ldefs", {
+    closeFails: true,
+    synchronizedClose: true,
+  });
+  barrier.state.expected = 2;
   // Concurrent resolutions can each retain an owner.
   const roots = [await installation("first"), await installation("second")];
   const results = await Promise.allSettled(
@@ -128,8 +155,8 @@ it("attempts every retained close and reports the remaining failures together", 
   expect(failure).toMatchObject({
     paths: [expect.stringContaining("first.ldefs")],
   });
-  expect(second.closeCalls).toBeGreaterThanOrEqual(2);
-  expect(first.closeCalls).toBeGreaterThanOrEqual(2);
+  expect(second.closeCalls).toBe(2);
+  expect(first.closeCalls).toBe(2);
 });
 
 it("keeps the read failure when the close also fails", async () => {
