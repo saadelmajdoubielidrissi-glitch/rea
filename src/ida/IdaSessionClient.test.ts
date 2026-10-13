@@ -1,6 +1,6 @@
 import { readFile, readdir, rm } from "node:fs/promises";
 import { sep } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import {
   createIdaTarget,
@@ -11,11 +11,34 @@ import { functionDossierSchema } from "../domain/hopperValues.js";
 import { jsonValueSchema, type JsonValue } from "../domain/jsonValue.js";
 import { ProviderAdapterError } from "../domain/providerAdapterError.js";
 import { projectAnalysisError } from "../domain/analysisErrorProjection.js";
+import { WindowsPrivateRuntime } from "../windows/WindowsPrivateRuntime.js";
 
 const roots: string[] = [];
+const windowsRuntimes = new Set<WindowsPrivateRuntime>();
+beforeEach(() => {
+  if (process.platform !== "win32") return;
+  const create = WindowsPrivateRuntime.create;
+  vi.spyOn(WindowsPrivateRuntime, "create").mockImplementation(
+    (parent, prefix) => {
+      const runtime = create(parent, prefix);
+      windowsRuntimes.add(runtime);
+      return runtime;
+    },
+  );
+});
 afterEach(async () => {
-  for (const root of roots.splice(0))
-    await rm(root, { recursive: true, force: true });
+  try {
+    // These pure producer fixtures spawn no IDA worker. After the retention
+    // assertions, release only the actual native owners this test created.
+    for (const runtime of windowsRuntimes) {
+      await runtime.close();
+      windowsRuntimes.delete(runtime);
+    }
+    for (const root of roots.splice(0))
+      await rm(root, { recursive: true, force: true });
+  } finally {
+    vi.restoreAllMocks();
+  }
 });
 /** A failed close whose diagnostic names exactly these unverified sessions. */
 const reportsSessions = (...sessions: readonly object[]) => ({
