@@ -1,9 +1,9 @@
-import { spawn } from "node:child_process";
-import { readdir } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { spawn, type ChildProcess } from "node:child_process";
+import { access } from "node:fs/promises";
 import { expect, it, onTestFinished, vi } from "vitest";
 
 import { projectAnalysisError } from "../../../src/domain/analysisErrorProjection.js";
+import { PrivateRuntimeRoot } from "../../../src/process/PrivateRuntimeRoot.js";
 import { SqliteDatabaseProvider } from "../../../src/sqlite/SqliteDatabaseProvider.js";
 import { createSqliteDatabaseFixture } from "../../fixtures/sqlite/database.js";
 import {
@@ -30,10 +30,14 @@ vi.mock("node:fs/promises", async (importOriginal) => {
   };
 });
 
-const privateRoots = async () =>
-  (await readdir(tmpdir())).filter((name) =>
-    name.startsWith("rea-sqlite-database-"),
-  );
+// Private roots go under the test's own workspace, so the cleanup check sees only this
+// provider's root and not those of SQLite tests running in parallel.
+const createProvider = (parent: string, roots: string[]) =>
+  new SqliteDatabaseProvider(process.env, undefined, async () => {
+    const root = await PrivateRuntimeRoot.create({ parent });
+    roots.push(root.path);
+    return root;
+  });
 
 const expectRetryableBusy = (
   error: Parameters<typeof projectAnalysisError>[0],
@@ -52,32 +56,47 @@ const expectRetryableBusy = (
     },
   });
 
+const expectRootsRemoved = async (roots: string[]) => {
+  expect(roots).toHaveLength(1);
+  await expect(access(roots[0]!)).rejects.toMatchObject({ code: "ENOENT" });
+};
+
+const stopHolder = async (holder: ChildProcess) => {
+  if (holder.exitCode !== null || holder.signalCode !== null) return;
+  const exited = new Promise<void>((resolve) =>
+    holder.once("exit", () => resolve()),
+  );
+  holder.kill();
+  await exited;
+};
+
 it("reports a selected database held by another process as retryable and unavailable", async () => {
   const workspace = await createTestWorkspace("rea-sqlite-busy-");
-  onTestFinished(() => removeTestWorkspace(workspace.root));
   const database = createSqliteDatabaseFixture(workspace.root);
   database.close();
-  const before = await privateRoots();
-  busy.path = database.path;
-  onTestFinished(() => {
+  const roots: string[] = [];
+  const provider = createProvider(workspace.root, roots);
+  onTestFinished(async () => {
     busy.path = "";
+    await provider.close();
+    await removeTestWorkspace(workspace.root);
   });
-  const provider = new SqliteDatabaseProvider(process.env);
-  onTestFinished(() => provider.close());
+  busy.path = database.path;
 
   const result = await provider.inspect({ path: database.path });
   if (result.ok) throw new Error("Expected a busy database rejection");
   expectRetryableBusy(result.error, database.path);
-  expect(await privateRoots()).toEqual(before);
+  await expectRootsRemoved(roots);
 });
 
 it.runIf(process.platform === "win32")(
   "reports a database that another Windows process holds without sharing as retryable",
   async () => {
     const workspace = await createTestWorkspace("rea-sqlite-busy-native-");
-    onTestFinished(() => removeTestWorkspace(workspace.root));
     const database = createSqliteDatabaseFixture(workspace.root);
     database.close();
+    const roots: string[] = [];
+    const provider = createProvider(workspace.root, roots);
     const literal = database.path.replaceAll("'", "''");
     const holder = spawn(
       "powershell.exe",
@@ -88,23 +107,25 @@ it.runIf(process.platform === "win32")(
       ],
       { stdio: ["ignore", "pipe", "ignore"], windowsHide: true },
     );
-    onTestFinished(() => {
-      holder.kill();
+    // One ordered cleanup: the holder must release the file before the workspace is removed.
+    onTestFinished(async () => {
+      await stopHolder(holder);
+      await provider.close();
+      await removeTestWorkspace(workspace.root);
     });
     await new Promise<void>((resolve, reject) => {
-      holder.stdout.once("data", () => resolve());
+      holder.stdout?.once("data", () => resolve());
       holder.once("exit", (code) =>
         reject(
           new Error(`Holder exited before opening the file (${String(code)})`),
         ),
       );
     });
-    const provider = new SqliteDatabaseProvider(process.env);
-    onTestFinished(() => provider.close());
 
     const result = await provider.inspect({ path: database.path });
     if (result.ok) throw new Error("Expected a busy database rejection");
     expectRetryableBusy(result.error, database.path);
+    await expectRootsRemoved(roots);
   },
   20_000,
 );
