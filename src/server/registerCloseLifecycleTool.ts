@@ -17,14 +17,17 @@ export const registerCloseLifecycleTool = ({
   logger,
   closeContract,
   closeProcessResources,
+  retryReverseEngineeringCleanup,
 }: LifecycleToolRegistration): void => {
   const closeWithResources = async <Value>(
     closeSession: () => Promise<Result<Value, AnalysisError>>,
   ): Promise<Result<Value, AnalysisError>> => {
-    const [sessionClose, resourceClose] = await Promise.allSettled([
-      closeSession(),
-      closeProcessResources(),
-    ]);
+    const [sessionClose, resourceClose, reverseCleanup] =
+      await Promise.allSettled([
+        closeSession(),
+        closeProcessResources(),
+        retryReverseEngineeringCleanup?.() ?? Promise.resolve(ok(null)),
+      ]);
     if (sessionClose.status === "rejected") {
       if (resourceClose.status === "rejected")
         logger.warn(
@@ -41,18 +44,43 @@ export const registerCloseLifecycleTool = ({
           { error: resourceClose.value.error.message },
           "Process capture cleanup failed while closing the session",
         );
+      if (reverseCleanup.status === "rejected")
+        logger.warn(
+          { error: String(reverseCleanup.reason) },
+          "Reverse-engineering cleanup threw while closing the session",
+        );
+      else if (!reverseCleanup.value.ok)
+        logger.warn(
+          { error: reverseCleanup.value.error.message },
+          "Reverse-engineering cleanup failed while closing the session",
+        );
       throw sessionClose.reason;
     }
     if (resourceClose.status === "rejected") throw resourceClose.reason;
+    if (reverseCleanup.status === "rejected") throw reverseCleanup.reason;
     const closed = sessionClose.value;
     const resources = resourceClose.value;
+    const reverse = reverseCleanup.value;
     if (!closed.ok) {
       if (!resources.ok)
         logger.warn(
           { error: resources.error.message },
           "Process capture cleanup failed while closing the session",
         );
+      if (!reverse.ok)
+        logger.warn(
+          { error: reverse.error.message },
+          "Reverse-engineering cleanup failed while closing the session",
+        );
       return closed;
+    }
+    if (!reverse.ok) {
+      if (!resources.ok)
+        logger.warn(
+          { error: resources.error.message },
+          "Process capture cleanup failed while closing the session",
+        );
+      return reverse;
     }
     return resources.ok ? closed : resources;
   };

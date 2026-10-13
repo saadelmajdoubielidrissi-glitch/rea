@@ -156,6 +156,9 @@ export interface LifecycleToolRegistration {
     signal: AbortSignal,
   ) => Promise<ProviderAvailability>;
   readonly closeProcessResources: () => Promise<Result<null, AnalysisError>>;
+  readonly retryReverseEngineeringCleanup?: () => Promise<
+    Result<null, AnalysisError>
+  >;
 }
 
 const registerLifecycleTools = (
@@ -183,13 +186,22 @@ const registerLifecycleTools = (
 };
 
 const registerOpenLifecycleTool = (
-  { server, session, logger, openContract }: LifecycleToolRegistration,
+  {
+    server,
+    session,
+    logger,
+    openContract,
+    retryReverseEngineeringCleanup,
+  }: LifecycleToolRegistration,
   artifactResources: ArtifactResourceScope,
 ): void => {
   server.registerTool(
     openContract.name,
     toolRegistrationOptions(openContract),
     async (input, context) => {
+      const cleanup = await retryReverseEngineeringCleanup?.();
+      if (cleanup !== undefined && !cleanup.ok)
+        return server.delivery.toCallToolResult(cleanup, openContract);
       let snapshot: AnalysisSnapshot | undefined;
       if (input.snapshot_path !== undefined) {
         const loaded = await readAnalysisSnapshot(
@@ -233,6 +245,9 @@ const registerOpenLifecycleTool = (
 /** Register MCP-only target lifecycle operations on a long-lived session. */
 export interface SessionToolOptions {
   readonly artifactResources: ArtifactResourceScope;
+  readonly retryReverseEngineeringCleanup?: () => Promise<
+    Result<null, AnalysisError>
+  >;
   readonly startedAt?: string;
   readonly availabilityPolicy?: () => AvailabilityPolicy;
   readonly androidAnalysisAvailability?: (
@@ -317,6 +332,12 @@ export const registerSessionTools = (
       ),
       androidAnalysisAvailability:
         options.androidAnalysisAvailability ?? missingAndroidAvailability,
+      ...(options.retryReverseEngineeringCleanup === undefined
+        ? {}
+        : {
+            retryReverseEngineeringCleanup:
+              options.retryReverseEngineeringCleanup,
+          }),
       closeProcessResources: async () => {
         try {
           await processResources.retryCleanup();
