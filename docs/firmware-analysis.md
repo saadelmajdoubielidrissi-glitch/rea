@@ -124,8 +124,9 @@ Select a verified native child for the existing tools:
 
 Then use `analyze_function`, `inspect_native_api` or the other native primitives.
 Native architecture and executable validation still apply. Generic
-[MIPS ELF](ghidra-mips.md) and [RISC-V ELF](ghidra-riscv.md) lanes are separate
-documents with their own admission boundaries. This milestone does
+[MIPS ELF](ghidra-mips.md), [RISC-V ELF](ghidra-riscv.md) and
+[m68k ELF](ghidra-m68k.md) lanes are separate documents with their own admission
+boundaries. This milestone does
 not add PPC decompilation, raw flash load profiles, bootloader/device
 tree semantics, vulnerability scanning, emulation or hardware runtime capture.
 

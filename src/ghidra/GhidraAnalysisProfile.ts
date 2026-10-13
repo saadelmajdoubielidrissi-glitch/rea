@@ -22,6 +22,11 @@ import {
   ghidraRiscvProfileParameters,
 } from "./GhidraRiscvProfile.js";
 import { ghidraRawBinaryLanguage } from "./GhidraRawBinaryLanguage.js";
+import {
+  ghidraM68kLanguageOverride,
+  ghidraM68kProfileParameters,
+  ghidraM68kUnsupportedReason,
+} from "./GhidraM68kProfile.js";
 
 import {
   ghidraProcessorUnsupportedReason,
@@ -44,7 +49,9 @@ import {
 export const ghidraPinnedLanguage = (
   target: BinaryTarget,
 ): GhidraLanguageOverride | undefined =>
-  ghidraMipsLanguageOverride(target) ?? ghidraRiscvLanguageOverride(target);
+  ghidraMipsLanguageOverride(target) ??
+  ghidraRiscvLanguageOverride(target) ??
+  ghidraM68kLanguageOverride(target);
 
 /** Resolve version-bound, deterministic semantics before Ghidra imports a target. */
 export const resolveGhidraAnalysisProfile = async (
@@ -87,6 +94,17 @@ export const resolveGhidraAnalysisProfile = async (
     ? await resolveGhidraPspExtension(installation, signal)
     : null;
   if (pspExtension !== null && !pspExtension.ok) return pspExtension;
+  const m68kReason = ghidraM68kUnsupportedReason(target);
+  if (m68kReason !== null)
+    return Promise.resolve(
+      err(
+        new AnalysisUnsupportedTargetError(
+          "resolve_analysis_profile",
+          target.path,
+          m68kReason,
+        ),
+      ),
+    );
   const provider = { ...identity, version: installation.providerVersion };
   const analyzerParameters =
     disabledAnalyzers === undefined || disabledAnalyzers.length === 0
@@ -167,11 +185,25 @@ export const resolveGhidraAnalysisProfile = async (
         `The caller-selected processor or compiler specification is outside the verified ${
           target.architecture === "riscv"
             ? "generic little-endian RISC-V"
-            : "endian-matched MIPS32"
+            : target.architecture === "m68k"
+              ? "pinned big-endian M68000-family"
+              : "endian-matched MIPS32"
         } profile. The requested override has not been changed.`,
       ),
     );
-  const selectedLanguage = languageOverride ?? pinnedLanguage;
+  // A matching caller-selected language that omits the compiler specification
+  // keeps the pinned compiler: the lane has exactly one verified choice, and
+  // the profile, launcher and handshake must all commit to it.
+  const selectedLanguage =
+    languageOverride === undefined
+      ? pinnedLanguage
+      : pinnedLanguage !== undefined &&
+          languageOverride.compilerSpecId === undefined
+        ? {
+            ...languageOverride,
+            compilerSpecId: pinnedLanguage.compilerSpecId,
+          }
+        : languageOverride;
   // DOS imports already force an admitted loader, language, and context.
   if (dos && languageOverride !== undefined)
     return Promise.resolve(
@@ -277,6 +309,7 @@ export const resolveGhidraAnalysisProfile = async (
         ...analyzerParameters,
         ...ghidraMipsProfileParameters(target, languageOverride),
         ...ghidraRiscvProfileParameters(target),
+        ...ghidraM68kProfileParameters(target),
         ...(pspExtension?.ok === true
           ? {
               mips_support_lane: "psp-elf32-exec-eabi32-allegrex-v2",

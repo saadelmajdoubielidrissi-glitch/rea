@@ -110,6 +110,7 @@ const HOPPER_DECLINED_ARCHITECTURE_LABELS: Record<
 > = {
   mips: "MIPS",
   riscv: "RISC-V",
+  m68k: "m68k",
 };
 
 /** Derive Hopper's complete non-interactive CLI loader selection. */
