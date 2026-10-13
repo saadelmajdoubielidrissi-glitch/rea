@@ -331,4 +331,91 @@ describe("process trace dimension attribution", () => {
       process: "changed",
     });
   });
+
+  it("attributes every independent failed ordering edge", () => {
+    const interaction = {
+      sequence: 0,
+      scheduled_at_ms: 2,
+      dispatched_at_ms: 2,
+      type: "input" as const,
+      data: "continue",
+      outcome: "dispatched" as const,
+    };
+    const make = (order: readonly string[]) => {
+      const base = capture(values(["terminal", "process"]));
+      const entries = order.map((entry) => {
+        if (entry === "ready")
+          return { collection: "frames" as const, index: 0 };
+        if (entry === "worker")
+          return { collection: "process_samples" as const, index: 0 };
+        if (entry === "interaction")
+          return { collection: "interaction_events" as const, index: 0 };
+        return { collection: "filesystem_checkpoints" as const, index: 0 };
+      });
+      return parseProcessCapture({
+        ...base,
+        interaction_events: [interaction],
+        event_journal: [
+          { capture_order: 0, collection: "filesystem_checkpoints", index: 1 },
+          ...entries.map((entry, index) => ({
+            ...entry,
+            capture_order: index + 1,
+          })),
+          {
+            capture_order: entries.length + 1,
+            collection: "lifecycle",
+            index: 0,
+          },
+          {
+            capture_order: entries.length + 2,
+            collection: "lifecycle",
+            index: 1,
+          },
+        ],
+      });
+    };
+    const left = make(["ready", "worker", "interaction", "filesystem"]);
+    const right = make(["filesystem", "worker", "ready", "interaction"]);
+    const specification: ProcessTraceSpecification = {
+      ...partialSpecification(),
+      events: [
+        ...partialSpecification().events,
+        {
+          id: "interaction",
+          source: "interaction",
+          exact: interaction,
+          cardinality: { kind: "required" },
+        },
+        {
+          id: "filesystem",
+          source: "filesystem",
+          exact: left.filesystem_checkpoints[0],
+          cardinality: { kind: "required" },
+        },
+      ],
+      language: {
+        kind: "partial_order",
+        happens_before: [
+          { before: "ready", after: "worker" },
+          { before: "interaction", after: "filesystem" },
+        ],
+        not_before: [],
+        unordered_groups: [],
+        prefix: [],
+        suffix: [],
+      },
+    };
+
+    expect(
+      compareProcessCaptures(left, right, {
+        traceSpecification: specification,
+      }),
+    ).toMatchObject({
+      trace: { verdict: "different" },
+      terminal: "changed",
+      process: "changed",
+      interaction: "changed",
+      filesystem: "changed",
+    });
+  });
 });
