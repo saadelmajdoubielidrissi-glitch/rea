@@ -249,8 +249,12 @@ Each observed request object receives a capture-scoped `transaction_id`.
 Requests sharing a URL remain distinct. Redirects link to the preceding
 transaction only when it was observed; a null predecessor does not establish
 that no earlier hop existed. Request events require both transaction fields;
-an absent ID is malformed capture data, while a null redirect predecessor is
-an explicit unknown.
+an absent ID is malformed capture data. `redirected_from_transaction_state`
+records `root` when Playwright observed no predecessor and `unknown` when a
+predecessor exists but was outside the capture. A linked predecessor is carried
+by `redirected_from_transaction_id` with no state field. Older captures without
+the state field retain the conservative meaning that a null predecessor is
+unknown.
 
 `scenario.network_content` records the resolved content selection. Comparing
 captures with different selections reports network evidence as unknown with a

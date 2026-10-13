@@ -15,6 +15,7 @@ const networkEvent = {
   step_index: 0,
   transaction_id: "request-1",
   redirected_from_transaction_id: null,
+  redirected_from_transaction_state: "root",
   method: "GET",
   url: sanitizeBrowserUrl("https://example.test/resource"),
   resource_type: "document",

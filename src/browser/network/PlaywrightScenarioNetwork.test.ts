@@ -444,10 +444,13 @@ it("links observed redirect hops and leaves unseen predecessors unknown", async 
   collector.request(unseen);
   await collector.finish();
   const requests = events.filter((event) => event.kind === "request");
+  expect(requests[0]?.redirected_from_transaction_state).toBe("root");
   expect(requests[1]?.redirected_from_transaction_id).toBe(
     requests[0]?.transaction_id,
   );
+  expect(requests[1]?.redirected_from_transaction_state).toBeUndefined();
   expect(requests[2]?.redirected_from_transaction_id).toBeNull();
+  expect(requests[2]?.redirected_from_transaction_state).toBe("unknown");
 });
 
 it("preserves read errors and does not turn unexposed or empty bytes into the same state", async () => {

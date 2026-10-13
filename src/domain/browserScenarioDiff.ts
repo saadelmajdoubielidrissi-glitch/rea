@@ -1,4 +1,3 @@
-import { scenarioNetworkCoverageReason } from "./browserScenarioNetworkComparison.js";
 import type { BrowserScenarioCapture } from "./browserScenarioCapture.js";
 import type { BrowserScenarioStep } from "./browserScenarioCaptureValues.js";
 import {
@@ -7,7 +6,7 @@ import {
   captured,
   eventEvidenceState,
   eventFamilyCoverageReason,
-  eventsFor,
+  prepareScenarioEvents,
   networkContentCoverageReason,
   orderNetworkTransactions,
   screenshotProjection,
@@ -61,6 +60,14 @@ export const compareBrowserScenarios = (
   input: CompareBrowserScenariosInput,
 ): BrowserScenarioDiff => {
   const normalization = commitBrowserScenarioNormalization(input.normalization);
+  const beforeEvents = prepareScenarioEvents(
+    input.before_scenario,
+    normalization.rules,
+  );
+  const afterEvents = prepareScenarioEvents(
+    input.after_scenario,
+    normalization.rules,
+  );
   const alignment = alignScenarioSteps(
     input.before_scenario,
     input.after_scenario,
@@ -70,6 +77,8 @@ export const compareBrowserScenarios = (
     afterCapture: input.after_scenario,
     alignment,
     rules: normalization.rules,
+    beforeEvents,
+    afterEvents,
   });
   const failures = [...alignment.failures, ...compared.failures];
   const alignmentStatus =
@@ -162,6 +171,8 @@ interface CompareAlignedStepsInput {
   readonly afterCapture: BrowserScenarioCapture;
   readonly alignment: ScenarioAlignment;
   readonly rules: readonly BrowserScenarioNormalizationRule[];
+  readonly beforeEvents: ReturnType<typeof prepareScenarioEvents>;
+  readonly afterEvents: ReturnType<typeof prepareScenarioEvents>;
 }
 
 const compareAlignedSteps = (
@@ -186,6 +197,8 @@ const compareAlignedSteps = (
       afterCapture: input.afterCapture,
       afterStep,
       rules: input.rules,
+      beforeEvents: input.beforeEvents,
+      afterEvents: input.afterEvents,
     });
     const reportable = artifacts.flatMap(({ diff }) =>
       diff === null ? [] : [diff],
@@ -268,6 +281,8 @@ interface CompareStepArtifactsInput {
   readonly afterCapture: BrowserScenarioCapture;
   readonly afterStep: BrowserScenarioStep;
   readonly rules: readonly BrowserScenarioNormalizationRule[];
+  readonly beforeEvents: ReturnType<typeof prepareScenarioEvents>;
+  readonly afterEvents: ReturnType<typeof prepareScenarioEvents>;
 }
 
 const compareStepArtifacts = (
@@ -327,18 +342,16 @@ const compareStepArtifacts = (
     compareCapturedValues({
       ...common,
       artifact: "events",
-      before: captured(
-        eventsFor(input.beforeCapture, input.beforeStep.step_index),
-      ),
-      after: captured(
-        eventsFor(input.afterCapture, input.afterStep.step_index),
-      ),
+      before: captured(input.beforeEvents.forStep(input.beforeStep.step_index)),
+      after: captured(input.afterEvents.forStep(input.afterStep.step_index)),
       beforeState: eventEvidenceState(input.beforeCapture, input.beforeStep),
       afterState: eventEvidenceState(input.afterCapture, input.afterStep),
       order: orderNetworkTransactions,
       incomparableReason: eventCoverageReason(
         input.beforeCapture,
         input.afterCapture,
+        input.beforeEvents.coverageReason,
+        input.afterEvents.coverageReason,
       ),
     }),
   ];
@@ -347,12 +360,14 @@ const compareStepArtifacts = (
 const eventCoverageReason = (
   before: BrowserScenarioCapture,
   after: BrowserScenarioCapture,
+  beforeNetworkReason: string | undefined,
+  afterNetworkReason: string | undefined,
 ): string | undefined => {
   const reasons = [
     eventFamilyCoverageReason(before, after),
     networkContentCoverageReason(before, after),
-    scenarioNetworkCoverageReason(before),
-    scenarioNetworkCoverageReason(after),
+    beforeNetworkReason,
+    afterNetworkReason,
   ].filter((reason) => reason !== undefined);
   return reasons.length === 0 ? undefined : reasons.join(" ");
 };

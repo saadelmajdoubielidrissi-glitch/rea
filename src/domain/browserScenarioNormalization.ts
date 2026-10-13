@@ -38,11 +38,11 @@ export const digestNormalizedScenarioValue = (
   order: (normalized: unknown) => unknown = (normalized) => normalized,
 ): string =>
   digestCanonicalValue(
-    order(normalize(value, artifact, rules)),
+    order(normalizeScenarioValue(value, artifact, rules)),
     "Browser scenario",
   );
 
-const normalize = (
+export const normalizeScenarioValue = (
   value: unknown,
   artifact: BrowserScenarioArtifactKind,
   rules: readonly BrowserScenarioNormalizationRule[],
@@ -57,12 +57,12 @@ const normalize = (
         value,
       );
   if (Array.isArray(value))
-    return value.map((item) => normalize(item, artifact, rules));
+    return value.map((item) => normalizeScenarioValue(item, artifact, rules));
   if (typeof value !== "object" || value === null) return value;
   return Object.fromEntries(
     Object.entries(value).map(([key, item]) => [
       key,
-      normalize(item, artifact, rules),
+      normalizeScenarioValue(item, artifact, rules),
     ]),
   );
 };

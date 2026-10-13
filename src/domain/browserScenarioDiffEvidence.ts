@@ -9,12 +9,12 @@ import { z } from "zod";
 import {
   fingerprintScenarioNetworkTransactions,
   scenarioNetworkTransactions,
-  scenarioNetworkTransactionSchema,
-  type ScenarioNetworkTransaction,
+  scenarioNetworkCoverageReason,
 } from "./browserScenarioNetworkComparison.js";
 import type {
   BrowserScenarioArtifactKind,
   BrowserScenarioEvidenceState,
+  BrowserScenarioNormalizationRule,
 } from "./browserScenarioDiffValues.js";
 
 /** Capture-state input consumed by browser scenario artifact comparison. */
@@ -104,34 +104,58 @@ export const actionState = (step: BrowserScenarioStep) => ({
 /** One step's ordered events and a single indexed network graph. */
 export interface ScenarioStepEvents {
   readonly events: readonly unknown[];
-  readonly network_transactions: readonly ScenarioNetworkTransaction[];
+  readonly network_transactions: readonly string[];
 }
 
-/** Network selection follows the initiating request; local IDs become graph indices only. */
-export const eventsFor = (
+/** Build one graph and fingerprint index per capture, then select in linear total work. */
+export const prepareScenarioEvents = (
   capture: BrowserScenarioCapture,
-  stepIndex: number,
-): ScenarioStepEvents => ({
-  events: capture.events.items.flatMap(
-    ({ sequence: _sequence, step_index, ...event }) =>
-      !("transaction_id" in event) && step_index === stepIndex ? [event] : [],
-  ),
-  network_transactions: scenarioNetworkTransactions(capture, stepIndex),
-});
+  rules: readonly BrowserScenarioNormalizationRule[],
+): {
+  readonly coverageReason: string | undefined;
+  readonly forStep: (stepIndex: number) => ScenarioStepEvents;
+} => {
+  const eventsByStep = new Map<number, unknown[]>();
+  for (const { sequence: _sequence, step_index, ...event } of capture.events
+    .items) {
+    if ("transaction_id" in event) continue;
+    const events = eventsByStep.get(step_index) ?? [];
+    events.push(event);
+    eventsByStep.set(step_index, events);
+  }
+  const nodes = scenarioNetworkTransactions(capture);
+  const fingerprints = fingerprintScenarioNetworkTransactions(nodes, rules);
+  const networkByStep = new Map<number, string[]>();
+  for (const [index, node] of nodes.entries()) {
+    const step = networkByStep.get(node.step_index) ?? [];
+    const fingerprint = fingerprints[index];
+    if (fingerprint === undefined)
+      throw new Error("Network comparison node has no fingerprint");
+    step.push(fingerprint);
+    networkByStep.set(node.step_index, step);
+  }
+  for (const fingerprintsForStep of networkByStep.values())
+    fingerprintsForStep.sort();
+  return {
+    coverageReason: scenarioNetworkCoverageReason(capture, nodes),
+    forStep: (stepIndex) => ({
+      events: eventsByStep.get(stepIndex) ?? [],
+      network_transactions: networkByStep.get(stepIndex) ?? [],
+    }),
+  };
+};
 
 const scenarioStepEventsSchema = z.strictObject({
   events: z.array(z.unknown()),
-  network_transactions: z.array(scenarioNetworkTransactionSchema),
+  network_transactions: z.array(z.string()),
 });
 
-/** Apply caller normalization before ancestry fingerprints and unordered comparison. */
+/** Network ancestry is already fingerprinted per capture; keep the collection unordered. */
 export const orderNetworkTransactions = (value: unknown): unknown => {
   const events = scenarioStepEventsSchema.parse(value);
   return {
     events: events.events,
-    network_transactions: fingerprintScenarioNetworkTransactions(
-      events.network_transactions,
-    ),
+    network_transactions: events.network_transactions,
   };
 };
 

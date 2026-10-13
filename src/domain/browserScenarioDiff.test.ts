@@ -29,6 +29,7 @@ const networkCapture = (sourceSequence: number, receiptStep: number) => {
       resource_type: "fetch",
       transaction_id: "request-1",
       redirected_from_transaction_id: null,
+      redirected_from_transaction_state: "root",
       header_names: [],
       status: null,
       failure: null,
@@ -250,6 +251,9 @@ const concurrentCapture = (
       redirect && path === "b"
         ? `request-${String(requestOrder.indexOf("a") + 1)}`
         : null,
+    ...(!redirect || path !== "b"
+      ? { redirected_from_transaction_state: "root" as const }
+      : {}),
     method: "GET",
     url: {
       url: `https://app.example.test/${path}.js`,
@@ -312,6 +316,9 @@ const redirectChainCapture = (swapLeaves = false, reverseReceipt = false) => {
           node.parent === null
             ? null
             : (reverseReceipt ? "renamed-" : "") + node.parent,
+        ...(node.parent === null
+          ? { redirected_from_transaction_state: "root" as const }
+          : {}),
         method: "GET",
         url: {
           url: `https://app.example.test/${node.path}`,
@@ -351,11 +358,17 @@ describe("browser scenario network event order", () => {
   });
 
   it("keeps missing and cyclic redirect ancestry incomparable", () => {
-    for (const predecessor of ["missing", "middle-a"]) {
+    for (const predecessor of ["missing", "middle-a", null]) {
       const capture = redirectChainCapture();
       const events = capture.events.items.map((event) =>
         "transaction_id" in event && event.transaction_id === "root-a"
-          ? { ...event, redirected_from_transaction_id: predecessor }
+          ? {
+              ...event,
+              redirected_from_transaction_id: predecessor,
+              ...(predecessor === null
+                ? { redirected_from_transaction_state: undefined }
+                : {}),
+            }
           : event,
       );
       const broken = browserScenarioCaptureSchema.parse({

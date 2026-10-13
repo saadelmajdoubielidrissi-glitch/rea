@@ -46,6 +46,7 @@ type UnindexedNetworkEvent = BrowserScenarioEvent extends infer Event
 interface Transaction {
   readonly id: string;
   readonly redirectedFrom: string | null;
+  readonly redirectedFromState: "root" | "unknown" | undefined;
   response?: {
     readonly source: ScenarioNetworkResponse;
     readonly sequence: number;
@@ -208,12 +209,17 @@ export class PlaywrightScenarioNetwork {
     const known = this.transactions.get(request);
     if (known !== undefined) return known;
     const predecessor = request.redirectedFrom();
+    const predecessorTransaction =
+      predecessor === null ? undefined : this.transactions.get(predecessor);
     const transaction: Transaction = {
       id: `request-${this.transactions.size + 1}`,
-      redirectedFrom:
+      redirectedFrom: predecessorTransaction?.id ?? null,
+      redirectedFromState:
         predecessor === null
-          ? null
-          : (this.transactions.get(predecessor)?.id ?? null),
+          ? "root"
+          : predecessorTransaction === undefined
+            ? "unknown"
+            : undefined,
       responseScheduled: false,
     };
     this.transactions.set(request, transaction);
@@ -230,6 +236,7 @@ export class PlaywrightScenarioNetwork {
     return {
       transaction_id: transaction.id,
       redirected_from_transaction_id: transaction.redirectedFrom,
+      redirected_from_transaction_state: transaction.redirectedFromState,
       method: this.options.secrets.redact(request.method()),
       url: this.options.secrets.sanitizeUrl(request.url()),
       resource_type: this.options.secrets.redact(request.resourceType()),

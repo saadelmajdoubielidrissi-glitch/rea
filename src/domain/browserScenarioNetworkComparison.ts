@@ -1,12 +1,14 @@
 import { z } from "zod";
 import type { BrowserScenarioCapture } from "./browserScenarioCapture.js";
+import type { BrowserScenarioNormalizationRule } from "./browserScenarioDiffValues.js";
 import { digestCanonicalValue } from "./canonicalDigest.js";
+import { normalizeScenarioValue } from "./browserScenarioNormalization.js";
 
 /** Numeric links are temporary local indices, never durable transaction identity. */
 export const scenarioNetworkTransactionSchema = z.strictObject({
   events: z.array(z.unknown()),
   predecessor: z.number().int().min(-2),
-  selected: z.boolean(),
+  step_index: z.number().int().min(0),
 });
 export type ScenarioNetworkTransaction = z.infer<
   typeof scenarioNetworkTransactionSchema
@@ -15,7 +17,6 @@ export type ScenarioNetworkTransaction = z.infer<
 /** Project each transaction once, retaining ancestry as references rather than nested copies. */
 export const scenarioNetworkTransactions = (
   capture: BrowserScenarioCapture,
-  stepIndex: number,
 ): ScenarioNetworkTransaction[] => {
   const sourceSteps = new Map(
     capture.events.items.map((event) => [event.sequence, event.step_index]),
@@ -27,7 +28,12 @@ export const scenarioNetworkTransactions = (
   );
   const grouped = new Map<
     string,
-    { events: unknown[]; predecessor: string | null; selected: boolean }
+    {
+      events: unknown[];
+      predecessor: string | null;
+      predecessorState: "root" | "unknown" | undefined;
+      stepIndex: number;
+    }
   >();
   for (const { sequence: _sequence, step_index: step, ...event } of capture
     .events.items) {
@@ -38,9 +44,10 @@ export const scenarioNetworkTransactions = (
       event.kind === "network-content"
         ? sourceSteps.get(event.source_event_sequence)
         : step;
-    const selected = (request?.step_index ?? receiptStep) === stepIndex;
+    const requestStep = request?.step_index ?? receiptStep;
     let evidence: unknown;
     let predecessor: string | null;
+    let predecessorState: "root" | "unknown" | undefined;
     if (event.kind === "network-content") {
       const {
         transaction_id: _id,
@@ -49,35 +56,50 @@ export const scenarioNetworkTransactions = (
       } = event;
       evidence = content;
       predecessor = request?.redirected_from_transaction_id ?? null;
+      predecessorState = request?.redirected_from_transaction_state;
     } else {
       const {
         transaction_id: _id,
         redirected_from_transaction_id: parent,
+        redirected_from_transaction_state: _state,
         ...network
       } = event;
       evidence = network;
       predecessor =
         request === undefined ? parent : request.redirected_from_transaction_id;
+      predecessorState =
+        request === undefined
+          ? event.redirected_from_transaction_state
+          : request.redirected_from_transaction_state;
     }
     const previous = grouped.get(id);
     if (previous === undefined)
-      grouped.set(id, { events: [evidence], predecessor, selected });
+      grouped.set(id, {
+        events: [evidence],
+        predecessor,
+        predecessorState,
+        stepIndex: requestStep ?? step,
+      });
     else previous.events.push(evidence);
   }
   const indices = new Map([...grouped.keys()].map((id, index) => [id, index]));
   return [...grouped.values()].map((node) => ({
     events: node.events,
     predecessor:
-      node.predecessor === null ? -1 : (indices.get(node.predecessor) ?? -2),
-    selected: node.selected,
+      node.predecessor === null
+        ? node.predecessorState === "root"
+          ? -1
+          : -2
+        : (indices.get(node.predecessor) ?? -2),
+    step_index: node.stepIndex,
   }));
 };
 
 /** Missing or cyclic ancestry cannot support an unchanged claim. */
 export const scenarioNetworkCoverageReason = (
   capture: BrowserScenarioCapture,
+  nodes = scenarioNetworkTransactions(capture),
 ): string | undefined => {
-  const nodes = scenarioNetworkTransactions(capture, -1);
   const finished = new Set<number>();
   for (let start = 0; start < nodes.length; start += 1) {
     const path = new Set<number>();
@@ -101,10 +123,16 @@ export const scenarioNetworkCoverageReason = (
 /** Hash normalized own evidence and its complete parent fingerprint in linear graph space. */
 export const fingerprintScenarioNetworkTransactions = (
   nodes: readonly ScenarioNetworkTransaction[],
+  rules: readonly BrowserScenarioNormalizationRule[] = [],
 ): string[] => {
   const own = nodes.map((node) =>
     node.events
-      .map((event) => digestCanonicalValue(event, "Browser scenario"))
+      .map((event) =>
+        digestCanonicalValue(
+          normalizeScenarioValue(event, "events", rules),
+          "Browser scenario",
+        ),
+      )
       .sort(),
   );
   const fingerprints = new Map<number, string>();
@@ -150,13 +178,10 @@ export const fingerprintScenarioNetworkTransactions = (
       );
     }
   }
-  return nodes
-    .flatMap((node, index) => {
-      if (!node.selected) return [];
-      const fingerprint = fingerprints.get(index);
-      if (fingerprint === undefined)
-        throw new Error("Network comparison node has no fingerprint");
-      return [fingerprint];
-    })
-    .sort();
+  return nodes.map((_, index) => {
+    const fingerprint = fingerprints.get(index);
+    if (fingerprint === undefined)
+      throw new Error("Network comparison node has no fingerprint");
+    return fingerprint;
+  });
 };

@@ -144,6 +144,8 @@ const networkEventShape = {
   ...eventBase,
   transaction_id: z.string().min(1),
   redirected_from_transaction_id: z.string().min(1).nullable(),
+  /** Distinguishes a captured root from an unobserved predecessor for null links. */
+  redirected_from_transaction_state: z.enum(["root", "unknown"]).optional(),
   method: z.string().min(1),
   url: sanitizedBrowserUrlSchema,
   resource_type: z.string().min(1),
