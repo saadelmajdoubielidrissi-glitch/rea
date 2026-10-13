@@ -5,6 +5,7 @@ import {
   type ArtifactInventoryOutput,
 } from "../../domain/artifactGraph.js";
 import { abortIfNeeded } from "../ArtifactHash.js";
+import { ArtifactReaderFailure } from "../ArtifactReader.js";
 import { scanCanonicalArtifactInventoryInScope } from "./scanCanonical.js";
 import type { ArtifactInventoryOptions } from "./types.js";
 import type { ArtifactInventorySnapshot } from "../../domain/artifactInventorySnapshot.js";
@@ -33,5 +34,14 @@ export const scanArtifactInventoryInScope = async (
 ): Promise<ArtifactInventorySnapshot> => {
   abortIfNeeded(options.signal);
   const path = await realpath(inputPath);
-  return scanCanonicalArtifactInventoryInScope(path, options);
+  const snapshot = await scanCanonicalArtifactInventoryInScope(path, options);
+  if (
+    options.expectedRootSha256 !== undefined &&
+    snapshot.manifest.root_sha256 !== options.expectedRootSha256
+  )
+    throw new ArtifactReaderFailure(
+      "integrity",
+      `Active artifact digest changed: expected ${options.expectedRootSha256}, observed ${snapshot.manifest.root_sha256}`,
+    );
+  return snapshot;
 };

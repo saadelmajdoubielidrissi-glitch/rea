@@ -188,7 +188,10 @@ class ArtifactClient implements AnalysisClient {
         const result = await extractArtifact(
           {
             inputPath: this.target.sourcePath ?? this.target.path,
-            inputFormat: this.target.format,
+            ...(this.target.sourcePath === undefined ||
+            this.target.sourcePath === this.target.path
+              ? { expectedRootSha256: this.target.sha256 }
+              : {}),
             outputRoot: parsed.output_root,
             environment: this.environment,
             integrityPolicy: parsed.integrity_policy,
@@ -391,6 +394,9 @@ class ArtifactClient implements AnalysisClient {
       environment: this.environment,
       ...(options?.signal === undefined ? {} : { signal: options.signal }),
       integrity: { mode: parsed.integrity_policy },
+      ...(this.target.kind === "archive" && this.target.format === "ines"
+        ? { expectedRootSha256: this.target.sha256 }
+        : {}),
     });
   }
 }

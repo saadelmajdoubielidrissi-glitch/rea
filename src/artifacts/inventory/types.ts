@@ -1,4 +1,5 @@
 import type { ArtifactResourceScope } from "../ArtifactResourceScope.js";
+import type { ArtifactOccurrence } from "../../domain/artifactGraph.js";
 
 /** Resolved integrity behavior admitted to the artifact scanner. */
 export type ArtifactIntegrityPolicy =
@@ -12,7 +13,13 @@ export const STRICT_INTEGRITY_POLICY: ArtifactIntegrityPolicy = {
 /** Options shared by artifact inventory scans. */
 export interface ArtifactInventoryOptions {
   readonly resourceScope: ArtifactResourceScope;
+  /** Bind a session-owned leaf inventory to the admitted root digest. */
+  readonly expectedRootSha256?: string | undefined;
   readonly signal?: AbortSignal | undefined;
   readonly integrity?: ArtifactIntegrityPolicy | undefined;
   readonly environment?: Readonly<NodeJS.ProcessEnv> | undefined;
+  /** Admit the current root before payload hashing or native child inventory. */
+  readonly admitRootFormat?: (
+    format: ArtifactOccurrence["artifact_format"],
+  ) => void;
 }

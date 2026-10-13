@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { createTestTempDirectory } from "../../../fixtures/temporaryDirectory.js";
+import { artifactGraphRootSha256 } from "../../../fixtures/artifactGraphRootSha256.js";
 
 import { ArtifactProvider } from "../../../../src/artifacts/ArtifactProvider.js";
 import { artifactExtractionExecutionSchema } from "../../../../src/contracts/artifactToolContracts.js";
@@ -21,7 +22,7 @@ describe("artifact extraction", () => {
     await writeFile(join(source, "payload.txt"), "committed\n");
     const output = join(root, "output");
     const client = new ArtifactProvider(process.env).createClient(
-      target(source, "directory"),
+      await target(source, "directory"),
     );
 
     const result = await client.execute("extract_artifact", {
@@ -40,7 +41,7 @@ describe("artifact extraction", () => {
     await mkdir(join(source, "assets"), { recursive: true });
     await writeFile(join(source, "assets", "selected.js"), "selected();\n");
     await writeFile(join(source, "assets", "ignored.js"), "ignored();\n");
-    const targetValue = target(source, "directory");
+    const targetValue = await target(source, "directory");
     const graph = await inventory(targetValue);
     expect(
       graph.occurrences.some(
@@ -136,13 +137,13 @@ const inventory = async (targetValue: BinaryTarget) => {
   return artifactInventoryResultSchema.parse(result.value.result);
 };
 
-const target = (
+const target = async (
   path: string,
   format: Extract<BinaryTarget, { kind: "archive" }>["format"] | "directory",
-): BinaryTarget => ({
+): Promise<BinaryTarget> => ({
   path,
   sourcePath: path,
-  sha256: "0".repeat(64),
+  sha256: await artifactGraphRootSha256(path),
   kind: "archive",
   format: format === "directory" ? "asar" : format,
 });

@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import { writeOrderedZip } from "../../../fixtures/artifactEntryOrder.js";
 import { createTestTempDirectory } from "../../../fixtures/temporaryDirectory.js";
+import { artifactGraphRootSha256 } from "../../../fixtures/artifactGraphRootSha256.js";
 
 import { ArtifactProvider } from "../../../../src/artifacts/ArtifactProvider.js";
 import { artifactExtractionExecutionSchema } from "../../../../src/contracts/artifactToolContracts.js";
@@ -16,7 +17,7 @@ describe("artifact extraction identity", () => {
     const source = join(root, "source.zip");
     await writeOrderedZip(source, ["ä.js", "a.js", "Z.js"]);
     const result = await new ArtifactProvider(process.env)
-      .createClient(archiveTarget(source))
+      .createClient(await archiveTarget(source))
       .execute(
         "extract_artifact",
         artifactExtractionExecutionSchema.parse({
@@ -34,10 +35,10 @@ describe("artifact extraction identity", () => {
   });
 });
 
-const archiveTarget = (path: string): BinaryTarget => ({
+const archiveTarget = async (path: string): Promise<BinaryTarget> => ({
   path,
   sourcePath: path,
-  sha256: "0".repeat(64),
+  sha256: await artifactGraphRootSha256(path),
   kind: "archive",
   format: "zip",
 });

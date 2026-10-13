@@ -1,27 +1,131 @@
-import { access, symlink, writeFile } from "node:fs/promises";
+import { createPackage } from "@electron/asar";
+import { access, mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
+import { buildBinary } from "plist";
 
 import { writeOrderedZip } from "../../../fixtures/artifactEntryOrder.js";
 import { createTestTempDirectory } from "../../../fixtures/temporaryDirectory.js";
+import { artifactGraphRootSha256 } from "../../../fixtures/artifactGraphRootSha256.js";
 
+import { parseBinaryTarget } from "../../../../src/application/BinaryTargetResolver.js";
+import { inesFixture } from "../../../fixtures/ines.js";
+import { nativeAotPeFixture } from "../../../fixtures/nativeaotPe.js";
 import { ArtifactProvider } from "../../../../src/artifacts/ArtifactProvider.js";
 import { artifactExtractionExecutionSchema } from "../../../../src/contracts/artifactToolContracts.js";
 import { artifactExtractionResultSchema } from "../../../../src/domain/artifactGraph.js";
 import type { BinaryTarget } from "../../../../src/domain/binaryTargetTypes.js";
 
+it.each(["plist", "pe"] as const)(
+  "refuses iNES bytes after a non-extractable %s target is replaced",
+  async (format) => {
+    const root = await createTestTempDirectory("rea-extract-current-");
+    const path = join(root, "source.bin");
+    await writeFile(
+      path,
+      format === "plist" ? buildBinary({ value: "old" }) : nativeAotPeFixture(),
+    );
+    const target = await parseBinaryTarget(path);
+    if (!target.ok) throw target.error;
+    expect(target.value.format).toBe(format);
+    const client = new ArtifactProvider(process.env).createClient(target.value);
+    await writeFile(path, inesFixture());
+    const output = join(root, "output");
+    const result = await client.execute(
+      "extract_artifact",
+      artifactExtractionExecutionSchema.parse({ output_root: output }),
+    );
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        _tag: "ArtifactOperationError",
+        operation: "extract_artifact",
+        reason: "integrity",
+      },
+    });
+    await expect(access(output)).rejects.toThrow();
+    await client.close();
+  },
+);
+
 describe("artifact extraction format support", () => {
-  it("refuses unsupported formats before inventory or output", async () => {
+  it.each(["zip", "asar", "hap", "hsp", "app"] as const)(
+    "refuses a replaced iNES target that scans as %s",
+    async (format) => {
+      const root = await createTestTempDirectory("rea-extract-replaced-");
+      const path = join(root, `source.${format}`);
+      await writeFile(path, inesFixture());
+      const target = await parseBinaryTarget(path);
+      if (!target.ok) throw target.error;
+      expect(target.value.format).toBe("ines");
+      const client = new ArtifactProvider(process.env).createClient(
+        target.value,
+      );
+      if (format !== "asar") {
+        await writeOrderedZip(path, ["payload.txt"]);
+      } else {
+        const source = join(root, "source");
+        await mkdir(source);
+        await writeFile(join(source, "payload.txt"), "evidence\n");
+        await createPackage(source, path);
+      }
+      const output = join(root, "output");
+      const result = await client.execute(
+        "extract_artifact",
+        artifactExtractionExecutionSchema.parse({ output_root: output }),
+      );
+      expect(result).toMatchObject({
+        ok: false,
+        error: {
+          _tag: "ArtifactOperationError",
+          operation: "extract_artifact",
+          reason: "integrity",
+        },
+      });
+      await expect(access(output)).rejects.toThrow();
+      await client.close();
+    },
+  );
+
+  it("refuses a scanned non-container instead of selecting a stale reader", async () => {
+    const root = await createTestTempDirectory("rea-extract-replaced-file-");
+    const path = join(root, "source.bin");
+    await writeFile(path, inesFixture());
+    const target = await parseBinaryTarget(path);
+    if (!target.ok) throw target.error;
+    const client = new ArtifactProvider(process.env).createClient(target.value);
+    await writeFile(path, "ordinary replacement bytes");
+    const output = join(root, "output");
+    expect(
+      await client.execute(
+        "extract_artifact",
+        artifactExtractionExecutionSchema.parse({ output_root: output }),
+      ),
+    ).toMatchObject({
+      ok: false,
+      error: {
+        _tag: "AnalysisUnsupportedTargetError",
+        reason: expect.stringContaining(
+          "Artifact format has no extraction reader:",
+        ),
+      },
+    });
+    await expect(access(output)).rejects.toThrow();
+  });
+
+  it("refuses a currently unsupported format before child inventory or output", async () => {
     const root = await createTestTempDirectory("rea-extract-format-");
     const image = join(root, "Image.dmg");
-    await writeFile(image, "not mounted");
+    const bytes = Buffer.alloc(512);
+    bytes.write("koly", 0, "ascii");
+    await writeFile(image, bytes);
     const alias = join(root, "Alias.dmg");
     await symlink(image, alias);
     const output = join(root, "output");
-    const extract = (signal?: AbortSignal) =>
+    const extract = async (signal?: AbortSignal) =>
       new ArtifactProvider(process.env)
-        .createClient(archiveTarget(alias, "dmg"))
+        .createClient(await archiveTarget(alias, "dmg"))
         .execute(
           "extract_artifact",
           artifactExtractionExecutionSchema.parse({ output_root: output }),
@@ -55,7 +159,7 @@ describe("artifact extraction format support", () => {
       );
       await writeOrderedZip(archive, ["payload.txt"]);
       const result = await new ArtifactProvider(process.env)
-        .createClient(archiveTarget(archive, format))
+        .createClient(await archiveTarget(archive, format))
         .execute(
           "extract_artifact",
           artifactExtractionExecutionSchema.parse({
@@ -73,13 +177,13 @@ describe("artifact extraction format support", () => {
   );
 });
 
-const archiveTarget = (
+const archiveTarget = async (
   path: string,
   format: Extract<BinaryTarget, { kind: "archive" }>["format"],
-): BinaryTarget => ({
+): Promise<BinaryTarget> => ({
   path,
   sourcePath: path,
-  sha256: "0".repeat(64),
+  sha256: await artifactGraphRootSha256(path),
   kind: "archive",
   format,
 });
