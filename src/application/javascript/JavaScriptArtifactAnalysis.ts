@@ -636,7 +636,8 @@ const findingCount = (analysis: JavaScriptStaticAnalysis): number =>
   analysis.electron.ipc.length +
   analysis.electron.sender_validations.length +
   analysis.electron.utility_processes.length +
-  analysis.electron.native_addon_bindings.length;
+  analysis.electron.native_addon_bindings.length +
+  analysis.electron.protocols.length;
 
 const rangeForOffsets = (
   text: string,
