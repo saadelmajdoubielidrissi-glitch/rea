@@ -70,6 +70,110 @@ describe("native API switch uncertainty", () => {
   });
 });
 
+describe("native API unresolved indirect branches", () => {
+  const branchEvidence = [
+    {
+      kind: "indirect-branch",
+      source: "ghidra-listing",
+      detail: "Ghidra's listing marks br as a computed jump.",
+    },
+  ] as const;
+
+  it("reports each unresolved indirect branch as a residual unknown", () => {
+    const dossier = functionDossierSchema.parse(ghidraFunctionDossier());
+    const boundary = dossier.native_api;
+    if (boundary?.available !== true)
+      throw new TypeError("Ghidra native API fixture is unavailable");
+    const table = boundary.jump_tables[0];
+    const mapping = table?.mappings[0];
+    if (table === undefined || mapping === undefined)
+      throw new TypeError("Ghidra jump-table fixture is unavailable");
+    const withBranches = functionDossierSchema.parse({
+      ...dossier,
+      native_api: {
+        ...boundary,
+        jump_tables: [
+          {
+            ...table,
+            default_targets: [
+              {
+                target_address: mapping.target_address,
+                confidence: "high",
+                evidence: mapping.evidence,
+              },
+            ],
+          },
+        ],
+        unresolved_indirect_branches: [
+          {
+            branch_address: "0x401040",
+            decompiler_outcome: "jump_table_recovery_failed",
+            listing_targets: [],
+            evidence: branchEvidence,
+          },
+          {
+            branch_address: "0x401050",
+            decompiler_outcome: "no_jump_table_warning",
+            listing_targets: ["0x401060"],
+            evidence: branchEvidence,
+          },
+        ],
+      },
+    });
+
+    const projected = projectNativeApiInspection(withBranches);
+    expect(projected.unsupported_branches).toEqual([
+      "indirect-branch-target-recovery",
+    ]);
+    expect(projected.residual_unknowns).toEqual([
+      "Which targets can the indirect branch at 0x401040 reach? The decompiler could not recover a jump table there and treated it as a call; it may be a dispatch inside this function or an indirect tail call.",
+      "Is the indirect branch at 0x401050 a tail call or a dispatch inside this function, and which targets can it reach?",
+    ]);
+  });
+
+  it("keeps an empty or absent branch inventory free of unknowns", () => {
+    const dossier = functionDossierSchema.parse(ghidraFunctionDossier());
+    const boundary = dossier.native_api;
+    if (boundary?.available !== true)
+      throw new TypeError("Ghidra native API fixture is unavailable");
+    for (const native_api of [
+      boundary,
+      { ...boundary, unresolved_indirect_branches: [] },
+    ]) {
+      const projected = projectNativeApiInspection(
+        functionDossierSchema.parse({ ...dossier, native_api }),
+      );
+      expect(projected.unsupported_branches).toEqual([]);
+      expect(
+        projected.residual_unknowns.some((unknown) =>
+          unknown.includes("indirect branch"),
+        ),
+      ).toBe(false);
+    }
+  });
+
+  it("rejects an unresolved branch without evidence", () => {
+    const boundary = functionDossierSchema.parse(
+      ghidraFunctionDossier(),
+    ).native_api;
+    if (boundary?.available !== true)
+      throw new TypeError("Ghidra native API fixture is unavailable");
+    expect(
+      nativeApiBoundarySchema.safeParse({
+        ...boundary,
+        unresolved_indirect_branches: [
+          {
+            branch_address: "0x401040",
+            decompiler_outcome: "no_jump_table_warning",
+            listing_targets: [],
+            evidence: [],
+          },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+});
+
 describe("native API inspection", () => {
   it("preserves unsupported provider branches as residual unknowns", () => {
     const value = ghidraFunctionDossier();

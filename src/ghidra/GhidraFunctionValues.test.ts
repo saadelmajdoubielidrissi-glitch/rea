@@ -614,6 +614,30 @@ const malformedOutputs = (): Array<
       },
     ],
     [
+      "non-canonical unresolved indirect branch",
+      "analyze_function",
+      {
+        ...dossier,
+        native_api: {
+          ...nativeApi,
+          unresolved_indirect_branches: [
+            {
+              branch_address: "401040",
+              decompiler_outcome: "no_jump_table_warning",
+              listing_targets: [],
+              evidence: [
+                {
+                  kind: "indirect-branch",
+                  source: "ghidra-listing",
+                  detail: "computed jump",
+                },
+              ],
+            },
+          ],
+        },
+      },
+    ],
+    [
       "Hopper local provenance",
       "analyze_function",
       {
