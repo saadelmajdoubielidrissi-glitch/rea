@@ -1,9 +1,11 @@
 import { open, readdir } from "node:fs/promises";
+import type { FileHandle } from "node:fs/promises";
 import { join } from "node:path";
 import { DOMParser, onWarningStopParsing } from "@xmldom/xmldom";
 
 import type { GhidraLanguageOverride } from "../config/ghidraLanguageOverride.js";
 import { ConfigurationError } from "../domain/configurationErrors.js";
+import { OwnedFileHandle } from "../filesystem/OwnedFileHandle.js";
 import { readBoundedFileBytes } from "../process/BoundedFileBytes.js";
 
 /** One language definition and the compiler specs it declares. */
@@ -16,6 +18,14 @@ export interface GhidraLanguageDefinition {
 const MAX_LDEFS_BYTES = 4 * 1024 * 1024;
 // Processor modules ship under Processors; installed extensions may add more.
 const LANGUAGE_ROOTS = ["Ghidra/Processors", "Ghidra/Extensions"] as const;
+const pendingLanguageFileCleanup = new Set<OwnedFileHandle<FileHandle>>();
+
+const retryLanguageFileCleanup = async (): Promise<void> => {
+  for (const owner of pendingLanguageFileCleanup) {
+    await owner.close();
+    pendingLanguageFileCleanup.delete(owner);
+  }
+};
 
 /** Parse the `<language>` elements of one `.ldefs` document. */
 export const parseGhidraLanguageDefinitions = (
@@ -64,11 +74,18 @@ const languageDirectories = async (installDir: string): Promise<string[]> => {
 const readLanguageDefinitionFile = async (
   path: string,
 ): Promise<Buffer | undefined> => {
-  const handle = await open(path, "r");
+  await retryLanguageFileCleanup();
+  const owner = new OwnedFileHandle(await open(path, "r"));
   try {
-    return await readBoundedFileBytes(handle, MAX_LDEFS_BYTES);
+    return await readBoundedFileBytes(owner.handle, MAX_LDEFS_BYTES);
   } finally {
-    await handle.close();
+    try {
+      await owner.close();
+      pendingLanguageFileCleanup.delete(owner);
+    } catch (cause: unknown) {
+      pendingLanguageFileCleanup.add(owner);
+      throw cause;
+    }
   }
 };
 
