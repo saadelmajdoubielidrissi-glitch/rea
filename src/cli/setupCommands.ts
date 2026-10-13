@@ -20,9 +20,16 @@ import { logCliCommand } from "../cliLogging.js";
 import { CLI_COMMANDS } from "../cliCommandNames.js";
 import type { Logger } from "pino";
 import type { CliInstance } from "./types.js";
-import { SUPPORTED_CLIENT_DEFINITIONS } from "../application/SupportedClients.js";
+import {
+  canonicalClientId,
+  SUPPORTED_CLIENT_ALIASES,
+  SUPPORTED_CLIENT_DEFINITIONS,
+} from "../application/SupportedClients.js";
 
-const supportedClientIds = SUPPORTED_CLIENT_DEFINITIONS.map(({ name }) => name);
+const supportedClientIds = [
+  ...SUPPORTED_CLIENT_DEFINITIONS.map(({ name }) => name),
+  ...Object.keys(SUPPORTED_CLIENT_ALIASES),
+];
 const supportedClientSchema = z
   .string()
   .refine(
@@ -266,7 +273,7 @@ const setupRunOptions = (
     ...(hasSelectedClients
       ? {
           readinessScope: {
-            clients: options.client,
+            clients: options.client.map(canonicalClientId),
             ...(options.skillClient.length > 0
               ? { skillClients: options.skillClient }
               : {}),
@@ -309,7 +316,7 @@ const doctorScope = (options: {
   options.skill === undefined
     ? undefined
     : {
-        clients: options.client,
+        clients: options.client.map(canonicalClientId),
         providers: options.provider,
         skill: options.skill === true,
       };

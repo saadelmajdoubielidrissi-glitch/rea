@@ -695,6 +695,14 @@ export const SUPPORTED_CLIENT_DEFINITIONS = [
   },
 ] as const satisfies readonly ClientDefinition[];
 
+/** Stable command-line spelling for Kimi Code; the Kimi config is detected once. */
+export const SUPPORTED_CLIENT_ALIASES = {
+  kimi_code: "kimi",
+} as const satisfies Readonly<Record<string, string>>;
+
+export const canonicalClientId = (id: string): string =>
+  SUPPORTED_CLIENT_ALIASES[id as keyof typeof SUPPORTED_CLIENT_ALIASES] ?? id;
+
 /**
  * Paths whose presence means doctor and setup should inspect the client.
  * Layered sources count: OpenCode still loads its XDG files when a custom

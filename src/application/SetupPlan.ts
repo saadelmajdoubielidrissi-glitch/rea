@@ -16,6 +16,7 @@ import type {
 } from "./SetupTypes.js";
 import {
   appDataRedirection,
+  canonicalClientId,
   registrationPersistenceDetail,
   type SetupClient,
 } from "./SupportedClients.js";
@@ -134,7 +135,10 @@ export const planSetupActions = async (input: {
   const byId = new Map(
     input.discovery.clients.map((client) => [client.name, client]),
   );
-  const unknownClient = input.clientIds.find((id) => !byId.has(id));
+  const canonicalClientIds = input.clientIds.map(canonicalClientId);
+  const unknownClient = input.clientIds.find(
+    (id, index) => !byId.has(canonicalClientIds[index] ?? id),
+  );
   if (unknownClient !== undefined) {
     return {
       plannedActions: [],
@@ -143,7 +147,7 @@ export const planSetupActions = async (input: {
       blocker: `Unsupported setup client: ${unknownClient}.`,
     };
   }
-  const selectedClients = input.clientIds.flatMap((id) => {
+  const selectedClients = canonicalClientIds.flatMap((id) => {
     const client = byId.get(id);
     return client === undefined ? [] : [client];
   });
