@@ -75,6 +75,7 @@ describe("client configuration filesystem lifecycle", () => {
       "droid",
       "zcode",
       "dsh",
+      "freebuff",
       "grok_bot",
     ]);
     expect(

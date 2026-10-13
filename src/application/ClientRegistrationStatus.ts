@@ -81,6 +81,7 @@ interface ClientRegistrationReadOptions {
   readonly platform?: NodeJS.Platform;
   readonly environment?: NodeJS.ProcessEnv;
   readonly resources?: ArtifactResourceScope;
+  readonly selectedClientIds?: readonly string[];
 }
 
 /** Registration facts shared by diagnostics and update maintenance. */
@@ -117,6 +118,7 @@ export const readClientRegistrationInspections = async (
     options.platform,
     options.environment,
   )) {
+    const selected = options.selectedClientIds?.includes(client.name) === true;
     if (client.configPathError !== undefined) {
       record({
         client: client.name,
@@ -127,7 +129,7 @@ export const readClientRegistrationInspections = async (
       });
       continue;
     }
-    if (!(await clientEvidencePresent(client))) continue;
+    if (!(await clientEvidencePresent(client, selected))) continue;
     const manualRemediation = manualRegistrationRemediation(client.name);
     if (client.format === "unsupported") {
       if (manualRemediation !== undefined)
@@ -406,9 +408,18 @@ const unavailableStatus = (
   remediation: remediation(client),
 });
 
-const clientEvidencePresent = async (client: SetupClient): Promise<boolean> => {
-  for (const path of clientEvidencePaths(client))
-    if (await exists(path)) return true;
+const clientEvidencePresent = async (
+  client: SetupClient,
+  selected: boolean,
+): Promise<boolean> => {
+  const paths = selected
+    ? [
+        ...clientEvidencePaths(client),
+        client.configPath,
+        ...(client.configPaths ?? []),
+      ]
+    : clientEvidencePaths(client);
+  for (const path of paths) if (await exists(path)) return true;
   return false;
 };
 

@@ -7,7 +7,7 @@ import {
   withClientServers,
   type ClientConfigurationDocument,
 } from "./ClientConfigurationDocument.js";
-import { copyFile, lstat, realpath, rm, rmdir } from "node:fs/promises";
+import { access, copyFile, lstat, realpath, rm, rmdir } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
 import { homeDirectoryFromEnvironment } from "../config/homeDirectory.js";
 import { join } from "node:path";
@@ -59,6 +59,8 @@ export interface UninstallFileSystem {
   copy(source: string, destination: string): Promise<void>;
   writeText(path: string, contents: string): Promise<void>;
   stat(path: string): Promise<ManagedPathStats>;
+  /** Follow discovery links and require an accessible target. */
+  access?(path: string): Promise<void>;
   realpath?(path: string): Promise<string>;
   remove(path: string, recursive?: boolean): Promise<void>;
   /** Remove a directory only if it is empty; a non-empty one is kept. */
@@ -75,6 +77,7 @@ const systemFileSystem = (
   writeText: (path, contents) =>
     writeFileAtomic(path, contents, { encoding: "utf8" }),
   stat: (path) => lstat(path),
+  access: (path) => access(path),
   realpath: (path) => realpath(path),
   remove: (path, recursive = true) => rm(path, { recursive }),
   removeEmptyDirectory: (path) => rmdir(path),
@@ -93,12 +96,17 @@ export interface UninstallResult {
   readonly items: readonly UninstallItem[];
 }
 
+/** Applicability established once from product-specific discovery evidence. */
+export interface UninstallClient extends SetupClient {
+  readonly applicability?: "unverified";
+}
+
 /** Filesystem boundary used by the contained uninstall workflow. */
 export interface UninstallHost {
-  clients(): Promise<readonly SetupClient[]>;
+  clients(): Promise<readonly UninstallClient[]>;
   /** Report a configuration that cannot be read safely, before any removal. */
-  inspectClient(client: SetupClient): Promise<UninstallItem | undefined>;
-  removeClient(client: SetupClient): Promise<UninstallItem>;
+  inspectClient(client: UninstallClient): Promise<UninstallItem | undefined>;
+  removeClient(client: UninstallClient): Promise<UninstallItem>;
   inspectSkill?(): Promise<UninstallItem | undefined>;
   removeSkill(): Promise<UninstallItem>;
   purgeData(): Promise<readonly UninstallItem[]>;
@@ -184,7 +192,7 @@ export const runUninstall = async (
  * overwritten. A client that fails then still stops the remaining removals.
  */
 const removeAll = async (
-  clients: readonly SetupClient[],
+  clients: readonly UninstallClient[],
   purgeData: boolean,
   host: UninstallHost,
 ): Promise<UninstallItem[]> => {
@@ -218,6 +226,7 @@ export const systemUninstallHost = (
     selectedHome ?? homeDirectoryFromEnvironment(environment, platform);
   const resources = new ArtifactResourceScope();
   const fileSystem = selectedFileSystem ?? systemFileSystem(resources);
+  const preflightOwnedClients = new WeakSet<UninstallClient>();
   // Set with the client list: the package view that redirects this
   // process's AppData writes, if any.
   let redirection: MsixPackageView | undefined;
@@ -227,17 +236,32 @@ export const systemUninstallHost = (
   const skillWriteBlocker = (path: string): string | undefined =>
     redirectedWriteBlocker(redirection, [path], "uninstall");
   return {
-    clients: () => {
-      const clients = supportedClients(home, platform, environment);
-      redirection = appDataRedirection(clients);
-      return Promise.resolve(
-        clients.flatMap((client) =>
-          uninstallConfigPaths(client).map((configPath) => ({
+    clients: async () => {
+      const clients: UninstallClient[] = [];
+      const supported = supportedClients(home, platform, environment);
+      redirection = appDataRedirection(supported);
+      for (const client of supported) {
+        let applicable = client.discoveryPaths === undefined;
+        for (const path of client.discoveryPaths ?? []) {
+          try {
+            if (fileSystem.access !== undefined) await fileSystem.access(path);
+            else if ((await fileSystem.stat(path)).isSymbolicLink()) continue;
+            applicable = true;
+            break;
+          } catch {
+            // Shared configuration alone cannot establish product applicability.
+            // Missing or unreadable evidence stays unverified; owned rows in a
+            // readable configuration can still be removed independently.
+          }
+        }
+        for (const configPath of uninstallConfigPaths(client))
+          clients.push({
             ...client,
             configPath,
-          })),
-        ),
-      );
+            ...(applicable ? {} : { applicability: "unverified" as const }),
+          });
+      }
+      return clients;
     },
     inspectClient: async (client) => {
       const read = await readClientConfiguration(client, fileSystem);
@@ -246,6 +270,7 @@ export const systemUninstallHost = (
       const removal = clientRegistrationRemoval(read.parsed, client);
       if (!removal.removeNative && removal.legacyPath === undefined)
         return undefined;
+      preflightOwnedClients.add(client);
       // A removal the running package would revert, or redirect into its
       // private storage, would leave the registration in place.
       const blocker = clientWriteBlocker(client);
@@ -254,7 +279,12 @@ export const systemUninstallHost = (
         : item(client.name, "failed", blocker);
     },
     removeClient: (client) =>
-      removeClient(client, fileSystem, () => clientWriteBlocker(client)),
+      removeClient(
+        client,
+        fileSystem,
+        () => clientWriteBlocker(client),
+        preflightOwnedClients.has(client),
+      ),
     inspectSkill: async () => {
       for (const destination of skillDestinations(
         home,
@@ -334,11 +364,24 @@ type ClientConfigurationRead =
     };
 
 const readClientConfiguration = async (
-  client: SetupClient,
+  client: UninstallClient,
   fileSystem: UninstallFileSystem,
+  ownershipEstablished = false,
 ): Promise<ClientConfigurationRead> => {
+  const applicabilityUnverified =
+    client.applicability === "unverified" && !ownershipEstablished;
+  const configurationFailure = (detail: string): ClientConfigurationRead =>
+    itemRead(
+      item(
+        client.name,
+        applicabilityUnverified ? "retained" : "failed",
+        applicabilityUnverified
+          ? `Product applicability could not be established. Shared configuration was retained without blocking other REA removals. ${detail}`
+          : detail,
+      ),
+    );
   if (client.configPathError !== undefined)
-    return itemRead(item(client.name, "failed", client.configPathError));
+    return configurationFailure(client.configPathError);
   if (client.format === "unsupported")
     return itemRead(
       item(
@@ -349,7 +392,10 @@ const readClientConfiguration = async (
       ),
     );
   const resolved = await resolveUninstallConfigPath(client, fileSystem);
-  if (typeof resolved !== "string") return itemRead(resolved);
+  if (typeof resolved !== "string")
+    return resolved.status === "failed"
+      ? configurationFailure(resolved.detail)
+      : itemRead(resolved);
   const transactionPath = resolved;
   let original: string;
   try {
@@ -357,30 +403,22 @@ const readClientConfiguration = async (
   } catch (cause: unknown) {
     const readFailure =
       cause instanceof RegularFileCleanupFailure ? cause.cause : cause;
-    return itemRead(
-      isMissing(cause)
-        ? item(client.name, "skipped", "Configuration does not exist.")
-        : item(
-            client.name,
-            "failed",
-            readFailure instanceof InvalidUtf8FileError
-              ? "Configuration is not valid UTF-8 and was not changed. Repair it, then rerun uninstall."
-              : "Configuration could not be read. Check file permissions, then rerun uninstall.",
-          ),
-    );
+    return isMissing(cause)
+      ? itemRead(item(client.name, "skipped", "Configuration does not exist."))
+      : configurationFailure(
+          readFailure instanceof InvalidUtf8FileError
+            ? "Configuration is not valid UTF-8 and was not changed. Repair it, then rerun uninstall."
+            : "Configuration could not be read. Check file permissions, then rerun uninstall.",
+        );
   }
   try {
     const parsed = parseClientConfiguration(original, client.format);
     return { kind: "configuration", transactionPath, original, parsed };
   } catch (cause: unknown) {
-    return itemRead(
-      item(
-        client.name,
-        "failed",
-        cause instanceof ClientConfigurationShapeError
-          ? `Configuration was not changed: ${cause.message}. Repair it, then rerun uninstall.`
-          : `Configuration is not valid ${client.format === "toml" || client.format === "grok" ? "TOML" : client.format === "opencode" ? "JSONC" : client.format === "hermes" || client.format === "dsh" ? "YAML" : "JSON"} and was not changed. Repair it, then rerun uninstall.`,
-      ),
+    return configurationFailure(
+      cause instanceof ClientConfigurationShapeError
+        ? `Configuration was not changed: ${cause.message}. Repair it, then rerun uninstall.`
+        : `Configuration is not valid ${client.format === "toml" || client.format === "grok" ? "TOML" : client.format === "opencode" ? "JSONC" : client.format === "hermes" || client.format === "dsh" ? "YAML" : "JSON"} and was not changed. Repair it, then rerun uninstall.`,
     );
   }
 };
@@ -423,11 +461,16 @@ const clientRegistrationRemoval = (
 };
 
 const removeClient = async (
-  client: SetupClient,
+  client: UninstallClient,
   fileSystem: UninstallFileSystem,
   writeBlocker?: () => string | undefined,
+  preflightOwned = false,
 ): Promise<UninstallItem> => {
-  const read = await readClientConfiguration(client, fileSystem);
+  const read = await readClientConfiguration(
+    client,
+    fileSystem,
+    preflightOwned,
+  );
   if (read.kind === "item") return read.item;
   const { transactionPath, original, parsed } = read;
   const name = PRODUCT_IDENTITY.mcpServerKey;
