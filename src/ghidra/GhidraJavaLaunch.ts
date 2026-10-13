@@ -6,7 +6,7 @@ import { execFileOutput } from "../process/ExecFileOutput.js";
 export const ghidraJavaLaunch = async (options: {
   readonly platform: NodeJS.Platform;
   readonly analyzeHeadlessPath: string;
-  readonly javaHome: string;
+  readonly javaHome?: string;
   readonly javaVmName?: string;
   readonly homeRoot: string;
   readonly tempRoot: string;
@@ -21,7 +21,17 @@ export const ghidraJavaLaunch = async (options: {
 }> => {
   const supportRoot = dirname(options.analyzeHeadlessPath);
   const installRoot = dirname(supportRoot);
-  const command = join(options.javaHome, "bin", "java");
+  const selectedJavaHome = options.javaHome ?? options.environment.JAVA_HOME;
+  const command =
+    selectedJavaHome === undefined
+      ? options.platform === "win32"
+        ? "java.exe"
+        : "java"
+      : join(
+          selectedJavaHome,
+          "bin",
+          options.platform === "win32" ? "java.exe" : "java",
+        );
   const isolatedProperties = [
     `-Duser.home=${options.homeRoot}`,
     `-Djava.io.tmpdir=${options.tempRoot}`,
@@ -83,9 +93,13 @@ export const ghidraJavaLaunch = async (options: {
     )
   )
     throw new Error("Invalid Ghidra LaunchSupport JVM argument");
-  if (vmArguments.some((argument) => /^-Dos\.arch(?:=|$)/u.test(argument)))
+  if (
+    vmArguments.some((argument) =>
+      /^-Dos\.(?:arch|name)(?:=|$)/u.test(argument),
+    )
+  )
     throw new Error(
-      "Ghidra LaunchSupport may not override os.arch; the native decompiler was validated for the inspected JVM architecture.",
+      "Ghidra LaunchSupport may not override os.arch or os.name; the native decompiler was validated for the inspected JVM platform.",
     );
   return {
     command,

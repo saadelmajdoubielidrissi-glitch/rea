@@ -56,7 +56,9 @@ if (mode === "env-failure" || (probe === "-vmargs" && mode === "vm-failure")) {
     ? "invalid JVM argument\\n"
     : mode === "os-arch-override"
       ? "-Dos.arch=x86_64\\n"
-      : "-Dfile.encoding=UTF8\\n";
+      : mode === "os-name-override"
+        ? "-Dos.name=Windows\\n"
+        : "-Dfile.encoding=UTF8\\n";
   process.stdout.write(vmArguments);
 }
 `,
@@ -220,16 +222,22 @@ describe.skipIf(process.platform === "win32")(
       },
     );
 
-    it("rejects LaunchSupport attempts to override the inspected JVM architecture", async () => {
-      const { session, launcher, analysisArguments } =
-        await fixture("os-arch-override");
-      const launched = await launcher.launch(session);
-      expect(launched.ok).toBe(false);
-      expect(analysisArguments).toEqual([]);
-      if (launched.ok)
-        throw new Error("Expected an architecture override failure");
-      expect(launched.error.message).toContain("may not override os.arch");
-    });
+    it.each(["os-arch-override", "os-name-override"])(
+      "rejects LaunchSupport %s before starting analysis",
+      async (mode) => {
+        const { session, launcher, analysisArguments } = await fixture(mode);
+        const launched = await launcher.launch(session);
+        expect(launched.ok).toBe(false);
+        expect(analysisArguments).toEqual([]);
+        if (launched.ok)
+          throw new Error("Expected a JVM platform override failure");
+        expect(launched.error.cause).toMatchObject({
+          message: expect.stringContaining(
+            "may not override os.arch or os.name",
+          ),
+        });
+      },
+    );
 
     it("bounds retained UTF-8 warnings and reports original byte counts", async () => {
       const { session, launcher } = await fixture("large");

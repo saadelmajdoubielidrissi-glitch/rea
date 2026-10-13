@@ -303,43 +303,44 @@ export class GhidraHeadlessLauncher implements GhidraLauncher {
         throw new GhidraLaunchError(
           "POSIX Ghidra requires its inspected JDK home",
         );
+      const inspectedJavaLaunch = await ghidraJavaLaunch({
+        platform,
+        analyzeHeadlessPath: this.options.analyzeHeadlessPath,
+        ...(this.options.javaHome === undefined
+          ? {}
+          : { javaHome: this.options.javaHome }),
+        ...(this.options.javaVmName === undefined
+          ? {}
+          : { javaVmName: this.options.javaVmName }),
+        homeRoot: paths.homeRoot,
+        tempRoot: paths.tempRoot,
+        arguments: headlessArguments,
+        environment,
+        onStderr: (mode, stderr) => {
+          if (stderr === "") return;
+          const bytes = Buffer.byteLength(stderr);
+          const redacted = redactCapturedTransportCredential(
+            { text: stderr, bytes, observedBytes: bytes },
+            session.token,
+            "[REDACTED]",
+          );
+          const bounded = boundedUtf8Text(
+            redacted,
+            GHIDRA_LAUNCH_COMMAND_OUTPUT_BYTES,
+          );
+          launchSupport.push({
+            mode,
+            stderr: bounded.text,
+            stderr_bytes: bytes,
+            stderr_truncated: bounded.truncated,
+          });
+        },
+        ...(options.signal === undefined ? {} : { signal: options.signal }),
+      });
       const command =
-        platform !== "win32" && this.options.javaHome !== undefined
-          ? await ghidraJavaLaunch({
-              platform,
-              analyzeHeadlessPath: this.options.analyzeHeadlessPath,
-              javaHome: this.options.javaHome,
-              ...(this.options.javaVmName === undefined
-                ? {}
-                : { javaVmName: this.options.javaVmName }),
-              homeRoot: paths.homeRoot,
-              tempRoot: paths.tempRoot,
-              arguments: headlessArguments,
-              environment,
-              onStderr: (mode, stderr) => {
-                if (stderr === "") return;
-                const bytes = Buffer.byteLength(stderr);
-                const redacted = redactCapturedTransportCredential(
-                  { text: stderr, bytes, observedBytes: bytes },
-                  session.token,
-                  "[REDACTED]",
-                );
-                const bounded = boundedUtf8Text(
-                  redacted,
-                  GHIDRA_LAUNCH_COMMAND_OUTPUT_BYTES,
-                );
-                launchSupport.push({
-                  mode,
-                  stderr: bounded.text,
-                  stderr_bytes: bytes,
-                  stderr_truncated: bounded.truncated,
-                });
-              },
-              ...(options.signal === undefined
-                ? {}
-                : { signal: options.signal }),
-            })
-          : { ...scriptCommand, environment };
+        platform === "win32"
+          ? { ...scriptCommand, environment }
+          : inspectedJavaLaunch;
       started = await (this.options.spawnProcess ?? spawnOwnedProviderProcess)({
         command: command.command,
         arguments: command.arguments,
