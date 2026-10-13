@@ -94,7 +94,10 @@ export const parseXmlPropertyList = (
   // Preserve the pinned decoder's existing OpenStep autodetection, also used
   // by app Info.plist resolution. Only XML needs the key-element substitution.
   const first = text.trimStart()[0];
-  if (first === "{" || first === "(") return omitPrototypeKeys(parse(text));
+  if (first === "{" || first === "(") {
+    assertOpenStepDepthWithinLimit(text);
+    return omitPrototypeKeys(parse(text));
+  }
   // Normalize only the literal line endings the pinned decoder normalizes.
   // Preserve character references in the source: serializing a DOM would turn
   // e.g. an encoded carriage return into a literal newline on the second parse.
@@ -109,6 +112,96 @@ export const parseXmlPropertyList = (
     document,
   );
   return withoutKey(parse(substituted), placeholder);
+};
+
+/** Bound OpenStep value nesting before the pinned decoder recursively reads it. */
+const assertOpenStepDepthWithinLimit = (text: string): void => {
+  const containers: { end: string; key: boolean }[] = [];
+  const completeValue = (): void => {
+    const parent = containers.at(-1);
+    if (parent?.end === "}") parent.key = true;
+  };
+  const assertDepth = (): void => {
+    if (containers.length > MAX_PLIST_DEPTH)
+      throw new RangeError(
+        `Plist exceeds ${String(MAX_PLIST_DEPTH)} nesting levels`,
+      );
+  };
+  let cursor = 0;
+  while (cursor < text.length) {
+    const afterTrivia = skipOpenStepTrivia(text, cursor);
+    if (afterTrivia !== cursor) {
+      cursor = afterTrivia;
+      continue;
+    }
+    const character = text[cursor] ?? "";
+    if ("=;,".includes(character)) {
+      const parent = containers.at(-1);
+      if (parent?.end === "}" && character !== ",")
+        parent.key = character !== "=";
+      cursor += 1;
+      continue;
+    }
+    if (character === "}" || character === ")") {
+      const container = containers.pop();
+      // parseOpenStep returns the first root value without reading trailing
+      // text; preflight must stop at the same boundary.
+      if (containers.length === 0 && container?.end === character) return;
+      completeValue();
+      cursor += 1;
+      continue;
+    }
+    if (character === "{" || character === "(") {
+      assertDepth();
+      containers.push({
+        end: character === "{" ? "}" : ")",
+        key: character === "{",
+      });
+      cursor += 1;
+      continue;
+    }
+    const key = containers.at(-1)?.key === true;
+    if (!key) assertDepth();
+    cursor = skipOpenStepScalar(text, cursor);
+    if (!key) completeValue();
+  }
+};
+
+/** Skip grammar trivia without interpreting delimiter examples inside comments. */
+const skipOpenStepTrivia = (text: string, cursor: number): number => {
+  if (/\s/u.test(text[cursor] ?? "")) return cursor + 1;
+  if (!text.startsWith("//", cursor) && !text.startsWith("/*", cursor))
+    return cursor;
+  const line = text[cursor + 1] === "/";
+  const end = text.indexOf(line ? "\n" : "*/", cursor + 2);
+  return end === -1 ? text.length : end + (line ? 1 : 2);
+};
+
+/** Read the extent of one opaque scalar; the pinned decoder still owns its value. */
+const skipOpenStepScalar = (text: string, start: number): number => {
+  let cursor = start;
+  const character = text[cursor];
+  if (character === '"') {
+    cursor += 1;
+    while (cursor < text.length) {
+      const next = text[cursor];
+      cursor += next === "\\" ? 2 : 1;
+      if (next === '"') break;
+    }
+  } else if (character === "<") {
+    const end = text.indexOf(">", cursor + 1);
+    cursor = end === -1 ? text.length : end + 1;
+  } else {
+    // Match the pinned OpenStep decoder's unquoted-string alphabet. Other
+    // syntax remains for the decoder to reject; preflight only owns depth.
+    cursor += 1;
+    while (
+      cursor < text.length &&
+      /[a-zA-Z0-9._/$:-]/u.test(text[cursor] ?? "")
+    )
+      cursor += 1;
+  }
+  return cursor;
 };
 
 /** Elements whose children the pinned plist value decoder visits recursively. */
