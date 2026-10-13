@@ -7,6 +7,7 @@ import {
 import {
   AnalysisAccessDeniedError,
   AnalysisArtifactChangedError,
+  AnalysisCapabilityUnavailableError,
   AnalysisCancelledError,
   AnalysisInputError,
   AnalysisOutputError,
@@ -85,6 +86,20 @@ export const sqliteDatabaseFailure = (
       return new AnalysisAccessDeniedError(operation, path, cause.code, {
         cause,
       });
+    // Windows reports a sharing violation as EBUSY: another process holds the file without read
+    // sharing. The unchanged request succeeds once that process releases it.
+    if (cause.code === "EBUSY")
+      return new AnalysisCapabilityUnavailableError(
+        SQLITE_PROVIDER_IDENTITY.id,
+        operation,
+        `Selected database file set is in use by another process (EBUSY): ${path}`,
+        {
+          cause,
+          retryable: true,
+          userMessage:
+            "The selected SQLite database is held open by another process without read sharing. Close that application or inspect a copy, then retry.",
+        },
+      );
     if (cause.code === "ENOENT" || cause.code === "ENOTDIR")
       return new AnalysisInputError(operation, { cause }, [
         {
