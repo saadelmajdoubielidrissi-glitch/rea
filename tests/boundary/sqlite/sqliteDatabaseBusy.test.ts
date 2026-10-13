@@ -52,7 +52,7 @@ const expectRetryableBusy = (
     details: {
       provider_id: "sqlite",
       operation: "inspect_sqlite_database",
-      reason: expect.stringContaining(`(EBUSY): ${path}`),
+      reason: `Selected database file set is in use by another process (EBUSY): ${path}`,
     },
   });
 
@@ -86,6 +86,25 @@ it("reports a selected database held by another process as retryable and unavail
   const result = await provider.inspect({ path: database.path });
   if (result.ok) throw new Error("Expected a busy database rejection");
   expectRetryableBusy(result.error, database.path);
+  await expectRootsRemoved(roots);
+});
+
+it("names the WAL when another process holds that member of the file set", async () => {
+  const workspace = await createTestWorkspace("rea-sqlite-busy-wal-");
+  const database = createSqliteDatabaseFixture(workspace.root, true);
+  const roots: string[] = [];
+  const provider = createProvider(workspace.root, roots);
+  onTestFinished(async () => {
+    busy.path = "";
+    await provider.close();
+    database.close();
+    await removeTestWorkspace(workspace.root);
+  });
+  busy.path = database.walPath;
+
+  const result = await provider.inspect({ path: database.path });
+  if (result.ok) throw new Error("Expected a busy WAL rejection");
+  expectRetryableBusy(result.error, database.walPath);
   await expectRootsRemoved(roots);
 });
 
