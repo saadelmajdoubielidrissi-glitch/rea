@@ -15,7 +15,8 @@ export async function verifyPackagePlatform({ cli, environment }) {
     );
     if (
       overview.operation !== "binary_overview" ||
-      overview.normalized_result?.procedure_count < 1
+      !Number.isInteger(overview.normalized_result?.procedure_count) ||
+      overview.normalized_result.procedure_count < 1
     )
       throw new Error(
         `packaged Hopper-backed analyze CLI failed: ${JSON.stringify(overview)}`,
@@ -25,7 +26,8 @@ export async function verifyPackagePlatform({ cli, environment }) {
     );
     if (
       inspected.operation !== "binary_overview" ||
-      inspected.normalized_result?.procedure_count < 1
+      !Number.isInteger(inspected.normalized_result?.procedure_count) ||
+      inspected.normalized_result.procedure_count < 1
     )
       throw new Error("packaged inspect CLI failed");
     const functionResult = json(
