@@ -712,6 +712,7 @@ it("recognizes tRPC procedures and named GraphQL operations in captured scripts"
       n.empresa.byCnpj.query("00000000000191");
       const q = "query ListarNotas($competencia: String!) { notas { id } }";
       this.client.query({ query: q });
+      const commented = "query # header\\nCommentedQuery { user }";
     `),
   );
   expect(
@@ -724,6 +725,7 @@ it("recognizes tRPC procedures and named GraphQL operations in captured scripts"
     { value: "invoice.list", mechanism: "trpc:procedure:useQuery" },
     { value: "empresa.byCnpj", mechanism: "trpc:procedure:query" },
     { value: "ListarNotas", mechanism: "graphql:query" },
+    { value: "CommentedQuery", mechanism: "graphql:query" },
   ]);
 });
 
