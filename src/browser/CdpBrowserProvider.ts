@@ -340,6 +340,8 @@ const withTargetSession = async <
       );
     // An unadopted browser socket is closed here; closing is idempotent.
     await endpoint.connection?.close();
+    if (options.signal?.aborted === true)
+      throw new AnalysisCancelledError(operation);
   }
 };
 
