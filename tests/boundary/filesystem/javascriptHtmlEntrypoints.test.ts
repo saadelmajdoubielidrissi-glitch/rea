@@ -230,6 +230,7 @@ it("reports unanalyzed inline HTML scripts instead of claiming complete coverage
   expect(gaps[0]?.observations[0]).toMatchObject({
     properties: {
       path: "www/index.html",
+      inline_script_count: 2,
       inline_scripts: [
         {
           script_type: "classic",
@@ -285,4 +286,84 @@ it("keeps complete coverage when HTML has only external scripts and data blocks"
       limitation.includes("inline JavaScript"),
     ),
   ).toBe(false);
+});
+
+it.each(coordinateCases)(
+  "retains parse5 source coordinates for inline script bodies with $name",
+  async ({ prefix }) => {
+    const root = await createTestTempDirectory("rea-html-inline-coordinates-");
+    const html = `${prefix}<script>\r\nrun();\rnext();\n</script>`;
+    await writeFile(join(root, "index.html"), html);
+
+    const result = await reconstructJavaScriptArtifact({ input_path: root });
+    const gap = result.graph.nodes
+      .flatMap(({ observations }) => observations)
+      .find(
+        ({ properties }) =>
+          properties.operation === "parse-html-inline-scripts",
+      );
+
+    expect(gap?.properties.inline_scripts).toEqual([
+      { script_type: "classic", location: inlineBodyRange(html) },
+    ]);
+  },
+);
+
+const inlineBodyRange = (html: string) => {
+  const pending: DefaultTreeAdapterTypes.Node[] = [
+    parse(html, { sourceCodeLocationInfo: true }),
+  ];
+  while (pending.length > 0) {
+    const node = pending.pop();
+    if (node === undefined) continue;
+    if (defaultTreeAdapter.isElementNode(node) && node.tagName === "script") {
+      const opening = node.sourceCodeLocation?.startTag;
+      const body = node.childNodes[0]?.sourceCodeLocation;
+      if (opening === undefined || body === undefined || body === null)
+        throw new Error("Missing parse5 inline script range");
+      return {
+        start: { line: opening.endLine, column: opening.endCol - 1 },
+        end: { line: body.endLine, column: body.endCol - 1 },
+      };
+    }
+    if ("childNodes" in node) {
+      for (const child of node.childNodes.toReversed()) pending.push(child);
+    }
+  }
+  throw new Error("Missing parse5 inline script");
+};
+
+it("bounds retained inline script locations and names the omitted remainder", async () => {
+  const root = await createTestTempDirectory("rea-html-many-inline-scripts-");
+  const count = 5_000;
+  await writeFile(
+    join(root, "index.html"),
+    "<script>run();</script>\n".repeat(count),
+  );
+
+  const result = await reconstructJavaScriptArtifact({ input_path: root });
+  const gap = result.graph.nodes
+    .flatMap(({ observations }) => observations)
+    .find(
+      ({ properties }) => properties.operation === "parse-html-inline-scripts",
+    );
+  const limit = {
+    name: "html_inline_script_locations_per_file",
+    value: 100,
+    unit: "items",
+  };
+
+  expect(gap?.properties.inline_script_count).toBe(count);
+  expect(gap?.properties.inline_scripts).toHaveLength(100);
+  expect(gap?.evidence.coverage).toMatchObject({
+    status: "partial",
+    limits: [limit],
+  });
+  expect(result.graph.coverage).toMatchObject({
+    status: "partial",
+    limits: expect.arrayContaining([limit]),
+  });
+  expect(result.graph.limitations).toContain(
+    `index.html has ${String(count)} inline JavaScript bodies starting at lines 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 and ${String(count - 10)} more that were not analyzed; endpoints, storage, imports and other facts in them are absent from the evidence.`,
+  );
 });

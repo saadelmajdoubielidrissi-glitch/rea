@@ -1,6 +1,9 @@
 import { expect, it } from "vitest";
 
-import { htmlArtifactReferences } from "./htmlArtifactReferences.js";
+import {
+  HTML_INLINE_SCRIPT_LOCATION_LIMIT,
+  htmlArtifactReferences,
+} from "./htmlArtifactReferences.js";
 
 it.each([
   ['<script data-src="decoy.js"></script>', []],
@@ -42,6 +45,7 @@ it("retains exact opening-tag offsets rather than the script body", () => {
   expect(htmlArtifactReferences(text)).toEqual({
     baseHref: null,
     inlineScripts: [],
+    inlineScriptCount: 0,
     scripts: [
       {
         scriptPath: "actual.js",
@@ -119,4 +123,17 @@ it("retains exact inline script body offsets, including unclosed scripts", () =>
       endOffset: unclosed.length,
     },
   ]);
+});
+
+it("counts every inline body but retains bounded locations", () => {
+  const count = 150_000;
+  const text = "<script>x</script>".repeat(count);
+  const { inlineScripts, inlineScriptCount } = htmlArtifactReferences(text);
+  expect(inlineScriptCount).toBe(count);
+  expect(inlineScripts).toHaveLength(HTML_INLINE_SCRIPT_LOCATION_LIMIT);
+  expect(inlineScripts.at(-1)).toEqual({
+    scriptType: "classic",
+    startOffset: 18 * (HTML_INLINE_SCRIPT_LOCATION_LIMIT - 1) + 8,
+    endOffset: 18 * (HTML_INLINE_SCRIPT_LOCATION_LIMIT - 1) + 9,
+  });
 });

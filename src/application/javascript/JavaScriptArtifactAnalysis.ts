@@ -32,7 +32,7 @@ import type {
   JavaScriptArtifactAnalysis,
   JavaScriptModuleArtifactAnalysis,
   JavaScriptModuleSemanticIr,
-  JavaScriptHtmlInlineScriptObservation,
+  JavaScriptHtmlInlineScriptsObservation,
   JavaScriptHtmlScriptObservation,
   JavaScriptJsonModuleObservation,
   JavaScriptPackageObservation,
@@ -59,7 +59,7 @@ interface MutableArtifactAnalysis<
   readonly packages: JavaScriptPackageObservation[];
   readonly jsonModules: JavaScriptJsonModuleObservation[];
   readonly htmlScripts: JavaScriptHtmlScriptObservation[];
-  readonly htmlInlineScripts: JavaScriptHtmlInlineScriptObservation[];
+  readonly htmlInlineScripts: JavaScriptHtmlInlineScriptsObservation[];
   readonly sourceMaps: JavaScriptSourceMapObservation[];
   visitedNodes: number;
   findings: number;
@@ -337,15 +337,16 @@ const finalizeArtifactAnalysis = <
     findings:
       state.findings +
       state.htmlScripts.length +
-      state.htmlInlineScripts.length,
+      state.htmlInlineScripts.reduce(
+        (count, { script_count }) => count + script_count,
+        0,
+      ),
     modules: state.modules,
     parse_failures: state.parseFailures,
     limitations: [
       "JavaScript and HTML were parsed as inert text; bundle bootstrap code was never executed.",
       "Static paths and relationships may remain unresolved when expressions are dynamic or obfuscated.",
-      ...[...groupHtmlInlineScripts(state.htmlInlineScripts)].map(
-        ([path, scripts]) => htmlInlineScriptLimitation(path, scripts),
-      ),
+      ...state.htmlInlineScripts.map(htmlInlineScriptLimitation),
       ...state.files.flatMap(
         ({ analysis_failure, application_projection_failure }) =>
           [analysis_failure, application_projection_failure].flatMap(
@@ -367,8 +368,10 @@ function* analyzeArtifactFileSteps<
   addStructuredObservations(file, state);
   if (file.kind === "html" && file.text.included) {
     const html = parseHtmlScripts(file.path, file.text.value);
-    state.htmlScripts.push(...html.scripts);
-    state.htmlInlineScripts.push(...html.inlineScripts);
+    // Append without spreading: argument count is bounded by the engine.
+    for (const script of html.scripts) state.htmlScripts.push(script);
+    if (html.inlineScripts !== null)
+      state.htmlInlineScripts.push(html.inlineScripts);
   }
   if (file.kind === "source-map") addSourceMap(file, context);
   if (file.kind !== "javascript" || !file.text.included) {
@@ -530,23 +533,35 @@ const parseHtmlScripts = (
   text: string,
 ): {
   readonly scripts: JavaScriptHtmlScriptObservation[];
-  readonly inlineScripts: JavaScriptHtmlInlineScriptObservation[];
+  readonly inlineScripts: JavaScriptHtmlInlineScriptsObservation | null;
 } => {
-  const { scripts, inlineScripts, baseHref } = htmlArtifactReferences(text);
+  const { scripts, inlineScripts, inlineScriptCount, baseHref } =
+    htmlArtifactReferences(text);
+  const pointAt = sourcePointLookup(text);
+  const range = (start: number, end: number): JavaScriptSourceRange => ({
+    start: pointAt(start),
+    end: pointAt(end),
+  });
   return {
     scripts: scripts.map(({ scriptPath, startOffset, endOffset }) => ({
       html_path: path,
       script_path: scriptPath,
       base_href: baseHref,
-      location: rangeForOffsets(text, startOffset, endOffset),
+      location: range(startOffset, endOffset),
     })),
-    inlineScripts: inlineScripts.map(
-      ({ scriptType, startOffset, endOffset }) => ({
-        html_path: path,
-        script_type: scriptType,
-        location: rangeForOffsets(text, startOffset, endOffset),
-      }),
-    ),
+    inlineScripts:
+      inlineScriptCount === 0
+        ? null
+        : {
+            path,
+            script_count: inlineScriptCount,
+            scripts: inlineScripts.map(
+              ({ scriptType, startOffset, endOffset }) => ({
+                script_type: scriptType,
+                location: range(startOffset, endOffset),
+              }),
+            ),
+          },
   };
 };
 
@@ -624,25 +639,22 @@ const collectSourceMapOriginals = (
   };
 };
 
-/** Group inline HTML script bodies by their HTML file, in document order. */
-export const groupHtmlInlineScripts = (
-  scripts: readonly JavaScriptHtmlInlineScriptObservation[],
-): ReadonlyMap<string, readonly JavaScriptHtmlInlineScriptObservation[]> => {
-  const byPath = new Map<string, JavaScriptHtmlInlineScriptObservation[]>();
-  for (const script of scripts) {
-    const existing = byPath.get(script.html_path);
-    if (existing === undefined) byPath.set(script.html_path, [script]);
-    else existing.push(script);
-  }
-  return byPath;
+/** Name the HTML file and lines whose inline JavaScript was not analyzed. */
+export const htmlInlineScriptLimitation = ({
+  path,
+  script_count: count,
+  scripts,
+}: JavaScriptHtmlInlineScriptsObservation): string => {
+  const lines = scripts
+    .slice(0, HTML_INLINE_SCRIPT_LIMITATION_LINES)
+    .map(({ location }) => String(location.start.line));
+  const unnamed = count - lines.length;
+  const one = count === 1;
+  return `${path} has ${String(count)} inline JavaScript ${one ? "body" : "bodies"} starting at line${one ? "" : "s"} ${lines.join(", ")}${unnamed > 0 ? ` and ${String(unnamed)} more` : ""} that ${one ? "was" : "were"} not analyzed; endpoints, storage, imports and other facts in ${one ? "it" : "them"} are absent from the evidence.`;
 };
 
-/** Name the HTML file and lines whose inline JavaScript was not analyzed. */
-export const htmlInlineScriptLimitation = (
-  path: string,
-  scripts: readonly JavaScriptHtmlInlineScriptObservation[],
-): string =>
-  `${path} has ${String(scripts.length)} inline JavaScript ${scripts.length === 1 ? "body" : "bodies"} starting at line${scripts.length === 1 ? "" : "s"} ${scripts.map(({ location }) => String(location.start.line)).join(", ")} that ${scripts.length === 1 ? "was" : "were"} not analyzed; endpoints, storage, imports and other facts in ${scripts.length === 1 ? "it" : "them"} are absent from the evidence.`;
+// Keep the agent-facing limitation short; the unknown scope keeps the ranges.
+const HTML_INLINE_SCRIPT_LIMITATION_LINES = 10;
 
 const unavailableSourceMap = (
   file: JavaScriptArtifactFile,
@@ -683,21 +695,49 @@ const findingCount = (analysis: JavaScriptStaticAnalysis): number =>
   analysis.electron.utility_processes.length +
   analysis.electron.native_addon_bindings.length;
 
-const rangeForOffsets = (
+/**
+ * Index line breaks once so each offset resolves in logarithmic time. Lines
+ * break at CRLF, CR, or LF, and columns count UTF-16 code units after the
+ * last terminator character, so an offset inside CRLF is column zero.
+ */
+const sourcePointLookup = (
   text: string,
-  start: number,
-  end: number,
-): JavaScriptSourceRange => ({
-  start: pointForOffset(text, start),
-  end: pointForOffset(text, end),
-});
+): ((offset: number) => JavaScriptSourcePoint) => {
+  // breaks[i] is the offset just after the i-th line terminator; CRLF ends
+  // one break, and its CR alone starts the zero-width column inside it.
+  const breaks: number[] = [];
+  const crlfInterior = new Set<number>();
+  for (let index = 0; index < text.length; index += 1) {
+    const code = text.charCodeAt(index);
+    if (code === 0x0d) {
+      if (text.charCodeAt(index + 1) === 0x0a) {
+        crlfInterior.add(index + 1);
+        index += 1;
+      }
+      breaks.push(index + 1);
+    } else if (code === 0x0a) breaks.push(index + 1);
+  }
+  return (offset) => {
+    if (crlfInterior.has(offset))
+      return { line: countAtMost(breaks, offset) + 2, column: 0 };
+    const lineIndex = countAtMost(breaks, offset);
+    return {
+      line: lineIndex + 1,
+      column: offset - (lineIndex === 0 ? 0 : (breaks[lineIndex - 1] ?? 0)),
+    };
+  };
+};
 
-const pointForOffset = (
-  text: string,
-  offset: number,
-): JavaScriptSourcePoint => {
-  const lines = text.slice(0, offset).split(/\r\n|\r|\n/u);
-  return { line: lines.length, column: lines.at(-1)?.length ?? 0 };
+/** Count sorted values that are less than or equal to the bound. */
+const countAtMost = (values: readonly number[], bound: number): number => {
+  let low = 0;
+  let high = values.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if ((values[middle] ?? Infinity) <= bound) low = middle + 1;
+    else high = middle;
+  }
+  return low;
 };
 
 const optionalString = (value: unknown): string | null =>

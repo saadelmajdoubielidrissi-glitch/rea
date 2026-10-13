@@ -18,6 +18,12 @@ export interface HtmlInlineScript {
   readonly endOffset: number;
 }
 
+/**
+ * Inline bodies whose exact locations are retained per HTML file. Every body
+ * is still counted; locations beyond this bound are reported as omitted.
+ */
+export const HTML_INLINE_SCRIPT_LOCATION_LIMIT = 100;
+
 // The JavaScript MIME type essences from the WHATWG MIME Sniffing standard.
 const JAVASCRIPT_MIME_TYPES = new Set([
   "application/ecmascript",
@@ -70,13 +76,16 @@ export const htmlArtifactReferences = (
 ): {
   readonly baseHref: string | null;
   readonly scripts: readonly HtmlScriptReference[];
+  /** The first inline bodies in document order, up to the location limit. */
   readonly inlineScripts: readonly HtmlInlineScript[];
+  readonly inlineScriptCount: number;
 } => {
   const pending: DefaultTreeAdapterTypes.Node[] = [
     parse(text, { sourceCodeLocationInfo: true }),
   ];
   const scripts: HtmlScriptReference[] = [];
   const inlineScripts: HtmlInlineScript[] = [];
+  let inlineScriptCount = 0;
   let baseHref: string | null = null;
   while (pending.length > 0) {
     const node = pending.pop();
@@ -102,8 +111,11 @@ export const htmlArtifactReferences = (
         const inline = src === undefined ? inlineScriptBody(node) : undefined;
         const scriptType =
           inline === undefined ? null : inlineScriptType(node.attrs);
-        if (inline !== undefined && scriptType !== null)
-          inlineScripts.push({ scriptType, ...inline });
+        if (inline !== undefined && scriptType !== null) {
+          inlineScriptCount += 1;
+          if (inlineScripts.length < HTML_INLINE_SCRIPT_LOCATION_LIMIT)
+            inlineScripts.push({ scriptType, ...inline });
+        }
       }
     }
     // Template content belongs to a separate inert document fragment. Only
@@ -112,7 +124,7 @@ export const htmlArtifactReferences = (
       for (const child of node.childNodes.toReversed()) pending.push(child);
     }
   }
-  return { baseHref, scripts, inlineScripts };
+  return { baseHref, scripts, inlineScripts, inlineScriptCount };
 };
 
 /** Locate a script element's non-blank body; browsers ignore it when src is set. */
@@ -121,15 +133,15 @@ const inlineScriptBody = (
 ): { readonly startOffset: number; readonly endOffset: number } | undefined => {
   const startTag = node.sourceCodeLocation?.startTag;
   if (startTag === undefined) return undefined;
-  let body = "";
+  let blank = true;
   let endOffset: number | undefined;
   for (const child of node.childNodes) {
     if (!defaultTreeAdapter.isTextNode(child)) continue;
-    body += child.value;
+    if (blank && /\S/u.test(child.value)) blank = false;
     endOffset = child.sourceCodeLocation?.endOffset ?? endOffset;
   }
   // An unclosed script's element range ends at its opening tag, so the body's
   // own text location bounds it.
-  if (body.trim() === "" || endOffset === undefined) return undefined;
+  if (blank || endOffset === undefined) return undefined;
   return { startOffset: startTag.endOffset, endOffset };
 };

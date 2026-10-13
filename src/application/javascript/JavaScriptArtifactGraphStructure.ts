@@ -1,9 +1,6 @@
 import type { ArtifactInventorySnapshot } from "../../domain/artifactInventorySnapshot.js";
 import type { ApplicationNode } from "../../domain/javascript/javascriptApplicationGraphSchemas.js";
-import {
-  groupHtmlInlineScripts,
-  htmlInlineScriptLimitation,
-} from "./JavaScriptArtifactAnalysis.js";
+import { htmlInlineScriptLimitation } from "./JavaScriptArtifactAnalysis.js";
 import { completeApplicationCoverage } from "../../domain/javascript/javascriptApplicationEvidenceSchemas.js";
 import type { JavaScriptModuleArtifactAnalysis } from "./JavaScriptArtifactAnalysisTypes.js";
 import { jsonValueSchema } from "../../domain/jsonValue.js";
@@ -21,6 +18,7 @@ import {
   artifactLocalIdentity,
   javascriptAnalysisCoverage,
   createElectronRoleNode,
+  htmlInlineScriptLocationLimits,
   linkElectronRoleToAsset,
   type JavaScriptArtifactGraphContext,
 } from "./JavaScriptArtifactGraphContext.js";
@@ -128,7 +126,7 @@ export const addJavaScriptArtifactFiles = (
   const packagesByPath = indexFirstByPath(context.analysis.packages);
   const jsonModulesByPath = indexFirstByPath(context.analysis.json_modules);
   const sourceMapsByPath = indexFirstByPath(context.analysis.source_maps);
-  const inlineScriptsByPath = groupHtmlInlineScripts(
+  const inlineScriptsByPath = indexFirstByPath(
     context.analysis.html_inline_scripts,
   );
   for (const analyzed of context.analysis.files) {
@@ -278,15 +276,19 @@ export const addJavaScriptArtifactFiles = (
         file,
         asset: target,
         operation: "parse-html-inline-scripts",
-        limitation: htmlInlineScriptLimitation(file.path, inlineScripts),
+        limitation: htmlInlineScriptLimitation(inlineScripts),
+        limits: htmlInlineScriptLocationLimits([inlineScripts]),
         details: {
-          inline_scripts: inlineScripts.map(({ script_type, location }) => ({
-            script_type,
-            location: {
-              start: { ...location.start },
-              end: { ...location.end },
-            },
-          })),
+          inline_script_count: inlineScripts.script_count,
+          inline_scripts: inlineScripts.scripts.map(
+            ({ script_type, location }) => ({
+              script_type,
+              location: {
+                start: { ...location.start },
+                end: { ...location.end },
+              },
+            }),
+          ),
         },
       });
   }

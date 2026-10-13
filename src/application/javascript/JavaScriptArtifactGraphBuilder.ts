@@ -9,6 +9,7 @@ import type { JavaScriptModuleArtifactAnalysis } from "./JavaScriptArtifactAnaly
 import type { JavaScriptArtifactFileSet } from "../../domain/javascript/javascriptArtifactFiles.js";
 import { JavaScriptArtifactGraphAccumulator } from "./JavaScriptArtifactGraphAccumulator.js";
 import {
+  htmlInlineScriptLocationLimits,
   selfReferenceOmissions,
   type JavaScriptArtifactGraphContext,
 } from "./JavaScriptArtifactGraphContext.js";
@@ -188,13 +189,21 @@ const graphCoverage = (context: JavaScriptArtifactGraphContext) => {
           : javaScriptAnalysisCoverageLimits(failure.limits),
       ),
   );
-  if (resourceLimits.length > 0 || executionLimits.length > 0)
+  const inlineScriptLimits = htmlInlineScriptLocationLimits(
+    context.analysis.html_inline_scripts,
+  );
+  if (
+    resourceLimits.length > 0 ||
+    executionLimits.length > 0 ||
+    inlineScriptLimits.length > 0
+  )
     return partialApplicationCoverage(
       [
         ...new Map(
           [
             ...semanticResourceLimitCoverage(resourceLimits),
             ...executionLimits,
+            ...inlineScriptLimits,
           ].map((limit) => [JSON.stringify(limit), limit]),
         ).values(),
       ],

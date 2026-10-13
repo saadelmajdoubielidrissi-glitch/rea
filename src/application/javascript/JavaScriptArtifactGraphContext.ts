@@ -8,7 +8,11 @@ import {
 } from "../../domain/javascript/javascriptApplicationEvidenceSchemas.js";
 import type { ApplicationNode } from "../../domain/javascript/javascriptApplicationGraphSchemas.js";
 import type { JavaScriptSourceRange } from "../../domain/javascript/javascriptStaticAnalysisTypes.js";
-import type { JavaScriptModuleArtifactAnalysis } from "./JavaScriptArtifactAnalysisTypes.js";
+import type {
+  JavaScriptHtmlInlineScriptsObservation,
+  JavaScriptModuleArtifactAnalysis,
+} from "./JavaScriptArtifactAnalysisTypes.js";
+import { HTML_INLINE_SCRIPT_LOCATION_LIMIT } from "../../domain/javascript/htmlArtifactReferences.js";
 import type {
   JavaScriptArtifactFile,
   JavaScriptArtifactFileSet,
@@ -107,6 +111,20 @@ export interface UnavailableParseInput {
   readonly details?: Readonly<Record<string, JsonValue>>;
 }
 
+/** Name the location bound when inline HTML scripts outnumber it. */
+export const htmlInlineScriptLocationLimits = (
+  files: readonly JavaScriptHtmlInlineScriptsObservation[],
+): JavaScriptArtifactGraphCoverage["limits"] =>
+  files.some(({ script_count, scripts }) => script_count > scripts.length)
+    ? [
+        {
+          name: "html_inline_script_locations_per_file",
+          value: HTML_INLINE_SCRIPT_LOCATION_LIMIT,
+          unit: "items",
+        },
+      ]
+    : [];
+
 /** Add a direct artifact-containment edge. */
 export const addArtifactContainsEdge = (
   context: JavaScriptArtifactGraphContext,
@@ -188,13 +206,14 @@ export const addUnavailableStaticParseScope = (
       {
         label: `${input.file.path} parse scope`,
         properties: {
+          // Details come first so they cannot replace the gap's own fields.
+          ...input.details,
           path: input.file.path,
           operation: input.operation,
           limitation: input.limitation,
           ...(input.failure === undefined
             ? {}
             : { analysis_failure: input.failure }),
-          ...input.details,
         },
         evidence: unavailableAstEvidence({
           sha256: input.file.sha256,
