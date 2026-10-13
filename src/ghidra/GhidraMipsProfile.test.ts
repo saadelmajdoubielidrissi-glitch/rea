@@ -80,6 +80,50 @@ const abi = (
 };
 const softFloat = abi({ cpr1Size: 0, fpAbi: 3 });
 
+it("pins inspected recordless MIPS I/o32 executables without inventing a floating-point ABI", async () => {
+  const provider = new GhidraProvider(config, silentLogger, {}, host);
+  for (const byteOrder of ["little", "big"] as const) {
+    const value = target({ flags: 0x1001, byteOrder, abiFlags: null });
+    expect(provider.inspectTargetSupport(value).status).toBe("supported");
+    const resolved = await provider.resolveAnalysisProfile(value);
+    if (!resolved.ok) throw resolved.error;
+    expect(resolved.value.profile?.parameters).toMatchObject({
+      mips_support_lane: "elf32-exec-mips1-recordless-pinned-v1",
+      mips_abi_basis: "declared-o32-header-fp-unverified-v1",
+      language_id: `MIPS:${byteOrder === "little" ? "LE" : "BE"}:32:default`,
+      mips_elf: { abi_flags: null },
+    });
+  }
+  const unexamined = target({ flags: 0x1001, abiFlags: null });
+  if (unexamined.kind !== "executable" || unexamined.architecture !== "mips")
+    throw new Error("Expected MIPS fixture");
+  const { abiFlags, ...unexaminedHeader } = unexamined.mips;
+  expect(abiFlags).toBeNull();
+  expect(
+    provider.inspectTargetSupport({ ...unexamined, mips: unexaminedHeader })
+      .status,
+  ).toBe("unsupported");
+  for (const change of [
+    { flags: 1 },
+    { flags: 0x1021 },
+    { flags: 0x1041 },
+    { flags: 0x1101 },
+    { flags: 0x1201 },
+    { flags: 0x1401 },
+    { flags: 0x04001001 },
+    { elfClass: 64 as const },
+    { type: 1 },
+    { type: 3 },
+    { limitations: ["ABI declarations were not fully inspected"] },
+  ]) {
+    expect(
+      provider.inspectTargetSupport(
+        target({ flags: 0x1001, abiFlags: null, ...change }),
+      ).status,
+    ).toBe("unsupported");
+  }
+});
+
 describe("bounded Ghidra MIPS admission", () => {
   it("binds endian and flags without widening Windows P0", async () => {
     const ghidra = new GhidraProvider(config, silentLogger, {}, host);

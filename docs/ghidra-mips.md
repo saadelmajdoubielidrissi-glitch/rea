@@ -44,6 +44,25 @@ establish the recordless admission, and an `EF_MIPS_ARCH_32` header that
 _declares_ an ABI is refused rather than relabeled, because the declared-ABI
 lane is verified for `EF_MIPS_ARCH_32R2` headers only.
 
+A third admission covers recordless MIPS I ELF32 `ET_EXEC` images whose header
+explicitly declares o32, with complete ABI-record inspection and no ASE,
+machine-specific, n32, 32-bit-on-64-bit, FP64 or NaN2008 declarations. Both byte
+orders use the pinned `MIPS:<LE|BE>:32:default` language, checked after import.
+The header's o32 declaration is retained as a fact; floating-point storage remains
+unverified and is reported in Evidence limitations. ABI-record-bearing MIPS I,
+MIPS II/III, relocatable/shared MIPS I and unspecified-ABI MIPS I remain outside
+this increment. This does not widen the existing Windows P0 boundary.
+
+Run `node scripts/verify-real-ghidra-mips1.mjs` after building, with the existing
+Ghidra/Java installation and `REA_READELF` when GNU readelf is not on PATH.
+The source-owned integer fixture is encoded directly from its declared MIPS I
+instructions; no cross compiler is required. GNU readelf independently checks
+its header and symbol. The verifier checks both byte orders through production
+MCP, exact loaded words, instruction/delay-slot decoding, dossier output, retained
+FP uncertainty, source immutability and snapshot replay; it also checks the LE
+fixture through the production CLI. Real macOS arm64/Ghidra 12.1.4 was exercised;
+Linux, Windows and a real firmware corpus were not.
+
 Explicit `EF_MIPS_FP64` and `EF_MIPS_NAN2008` declarations are refused. Their
 absence is insufficient: Clang can emit identical `e_flags` for FP32, FP64 and
 soft-float targets. Target resolution also reads the 24-byte ABI flags record

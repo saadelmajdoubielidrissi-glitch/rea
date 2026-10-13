@@ -563,6 +563,12 @@ export const createGhidraProviderClient = (input: {
         ]
       : []),
     ...ghidraMipsRelocatableLimitations(target),
+    ...(committedProfile.parameters.mips_abi_basis ===
+    "declared-o32-header-fp-unverified-v1"
+      ? [
+          "The recordless MIPS I ELF header explicitly declares o32; no ABI flags record establishes floating-point storage semantics. Floating-point ABI behavior remains unverified.",
+        ]
+      : []),
     ...ghidraMipsSharedLimitations(target),
     ...ghidraRiscvLimitations(target),
   ];

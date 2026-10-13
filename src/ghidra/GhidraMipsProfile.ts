@@ -8,6 +8,28 @@ const MIPS_ET_EXEC = 2;
 const MIPS_ET_DYN = 3;
 const MIPS16_HEADER_ASE = 0x04000000;
 
+/** Inspected recordless MIPS I executables with an explicitly declared o32 ABI. */
+const hasMips1HeaderShape = (target: BinaryTarget): boolean => {
+  if (
+    target.kind !== "executable" ||
+    target.format !== "elf" ||
+    target.architecture !== "mips"
+  )
+    return false;
+  const { flags, abiFlags, limitations } = target.mips;
+  return (
+    target.mips.elfClass === 32 &&
+    target.mips.type === MIPS_ET_EXEC &&
+    (flags & 0xf0000000) === 0 &&
+    (flags & 0x0000f000) === 0x00001000 &&
+    (flags & 0x0fff0000) === 0 &&
+    // ABI2, ABI_ON32, 32BITMODE, FP64 and NAN2008 require separate semantics.
+    (flags & 0x760) === 0 &&
+    abiFlags === null &&
+    (limitations?.length ?? 0) === 0
+  );
+};
+
 /** A distinct compressed shared-image shape; admission still checks every declaration. */
 const isGhidraMips16SharedTarget = (target: BinaryTarget): boolean =>
   target.kind === "executable" &&
@@ -19,7 +41,9 @@ const isGhidraMips16SharedTarget = (target: BinaryTarget): boolean =>
 export const ghidraMipsLanguageOverride = (
   target: BinaryTarget,
 ): GhidraLanguageOverride | undefined =>
-  (isGhidraMips16SharedTarget(target) || hasLegacyMipsHeaderShape(target)) &&
+  (isGhidraMips16SharedTarget(target) ||
+    hasLegacyMipsHeaderShape(target) ||
+    hasMips1HeaderShape(target)) &&
   ghidraMipsUnsupportedReason(target) === null &&
   target.architecture === "mips"
     ? {
@@ -88,6 +112,7 @@ export const ghidraMipsUnsupportedReason = (
   if ((metadata.flags & 0x00ff0000) !== 0)
     return "Machine-specific MIPS variants, including PSP Allegrex, need a separately supported processor profile.";
   const arch = metadata.flags & 0xf0000000;
+  if (hasMips1HeaderShape(target)) return null;
   if (arch !== 0x70000000 && arch !== 0x50000000)
     return "This Ghidra MIPS lane requires EF_MIPS_ARCH_32R2 or a recordless legacy EF_MIPS_ARCH_32 header; other ISA revisions need separate verification.";
   const recordlessShape =
@@ -258,9 +283,12 @@ export const ghidraMipsProfileParameters = (
   // A deliberate caller-selected language wins over the legacy pin; the pin
   // exists because header auto-selection misselects a 64-bit language.
   const legacy = isLegacyMipsAdmission(target);
+  const mips1 = hasMips1HeaderShape(target);
   const language = ghidraMipsLanguageOverride(target);
   const pinnedLanguage =
-    legacy && languageOverride === undefined && language !== undefined
+    (legacy || mips1) &&
+    languageOverride === undefined &&
+    language !== undefined
       ? {
           language_id: language.languageId,
           compiler_spec_id: language.compilerSpecId ?? "default",
@@ -316,14 +344,19 @@ export const ghidraMipsProfileParameters = (
       ? { mips_soft_float_storage: GHIDRA_MIPS_SOFT_FLOAT_STORAGE }
       : {}),
     instruction_context_evidence: "per-address-isa-mode-v1",
-    mips_support_lane: legacy
-      ? "elf32-exec-arch32-legacy-pinned-v1"
-      : isGhidraMips16SharedTarget(target)
-        ? "elf32-dyn-o32-arch32r2-mips16-local-rel32-v1"
-        : target.mips.type === MIPS_ET_REL
-          ? "elf32-rel-o32-arch32r2-standard-v1"
-          : "elf32-exec-o32-arch32r2-standard-v3",
+    mips_support_lane: mips1
+      ? "elf32-exec-mips1-recordless-pinned-v1"
+      : legacy
+        ? "elf32-exec-arch32-legacy-pinned-v1"
+        : isGhidraMips16SharedTarget(target)
+          ? "elf32-dyn-o32-arch32r2-mips16-local-rel32-v1"
+          : target.mips.type === MIPS_ET_REL
+            ? "elf32-rel-o32-arch32r2-standard-v1"
+            : "elf32-exec-o32-arch32r2-standard-v3",
     ...(legacy ? { mips_abi_basis: "inferred-o32-assumption-v1" } : {}),
+    ...(mips1
+      ? { mips_abi_basis: "declared-o32-header-fp-unverified-v1" }
+      : {}),
     ...pinnedLanguage,
   };
 };
