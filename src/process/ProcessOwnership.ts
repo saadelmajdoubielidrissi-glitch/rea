@@ -227,6 +227,20 @@ export const readProcessRunId = async (
 ): Promise<string | undefined> =>
   (await host.environment(pid, signal)).REA_PROCESS_RUN_ID;
 
+/**
+ * Retain the plan's withheld-process observations on a cleanup failure that would
+ * otherwise drop them, so the uncertainty evidence does not depend on which
+ * cleanup branch finished the attempt. A result that already carries observations
+ * keeps its own.
+ */
+const withUnverifiedObservations = (
+  result: ProcessCleanupFailure,
+  unverified: readonly OwnershipSweepUnverifiedProcess[],
+): ProcessCleanupFailure =>
+  unverified.length === 0 || (result.unverified?.length ?? 0) > 0
+    ? result
+    : { ...result, unverified };
+
 /** Token-validate every rooted POSIX process group before signaling any. */
 export const cleanupOwnedProcessGroup = async (
   ownership: OwnedProcessGroup,
@@ -252,7 +266,8 @@ export const cleanupOwnedProcessGroup = async (
       host,
       plan.tokenOwnedIdentities,
     );
-    if ("cleaned" in revalidation) return revalidation;
+    if ("cleaned" in revalidation)
+      return withUnverifiedObservations(revalidation, plan.unverified);
     if (revalidation.empty) continue;
     try {
       host.signalGroup(processGroupId, "SIGKILL");
@@ -261,10 +276,13 @@ export const cleanupOwnedProcessGroup = async (
       const code =
         cause instanceof Error && "code" in cause ? cause.code : undefined;
       if (code !== "ESRCH")
-        return {
-          cleaned: false,
-          reason: `owned process group signal failed: ${errorMessage(cause)}`,
-        };
+        return withUnverifiedObservations(
+          {
+            cleaned: false,
+            reason: `owned process group signal failed: ${errorMessage(cause)}`,
+          },
+          plan.unverified,
+        );
     }
   }
   if (plan.unresolved.length > 0)
