@@ -43,6 +43,7 @@
   "packageManager": "npm@11.16.0",
   "files": [
     "dist",
+    "npm-shrinkwrap.json",
     "install.sh",
     "bridge/hopper_bridge.py",
     "bridge/native/NativeUIChildren.swift",
@@ -62,12 +63,16 @@
     "bridge/android/ReaJadxBridge.java",
     "bridge/mitmproxy/capture.py",
     "scripts/rea.mjs",
+    "scripts/plugin-mcp-launcher.mjs",
     "scripts/rea-android-workspace-guardian.mjs",
     "scripts/electron-active-hook.cjs",
     "scripts/electron-active-hook-boundaries.cjs",
     "scripts/hopper-demo-x11.py",
     "scripts/prepack.mjs",
     "scripts/prepare.mjs",
+    ".claude-plugin/plugin.json",
+    ".codex-plugin/plugin.json",
+    ".mcp.json",
     "skills",
     "README.md",
     "DISCLAIMER.md",
@@ -337,11 +342,6 @@
     "yaml": "2.9.0",
     "zod": "4.4.3"
   },
-  "overrides": {
-    "vitepress": {
-      "vite": "6.4.4"
-    }
-  },
   "devDependencies": {
     "@fast-check/vitest": "0.5.0",
     "@types/cross-spawn": "6.0.6",
@@ -356,6 +356,7 @@
     "lint-staged": "16.4.0",
     "oxfmt": "0.72.0",
     "oxlint": "1.87.0",
+    "release-please": "17.3.0",
     "rolldown": "1.2.12",
     "turbo": "2.11.7",
     "typescript": "7.0.2",
