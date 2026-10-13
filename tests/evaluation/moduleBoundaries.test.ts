@@ -275,6 +275,25 @@ describe("module import syntax and source discovery", () => {
     expect(result.stderr).toContain("src/domain/probe.ts:1: pure-layer");
     expect(result.stderr).not.toContain("old.ts");
   });
+
+  it("discovers forbidden nested sources without a Git worktree", async () => {
+    const temporary = await createTestTempDirectory("rea-module-no-git-");
+    await mkdir(join(temporary, "src", "domain", "nested"), {
+      recursive: true,
+    });
+    await writeFile(
+      join(temporary, "src/domain/nested/probe.ts"),
+      'import { createServer } from "../../server/createServer.js";\n',
+    );
+    const result = spawnSync(process.execPath, [verifier], {
+      cwd: temporary,
+      encoding: "utf8",
+    });
+    if (result.error !== undefined) throw result.error;
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("src/domain/nested/probe.ts");
+    expect(result.stderr).toContain("src/server/createServer.js");
+  });
 });
 
 describe("test lane import boundaries", () => {
