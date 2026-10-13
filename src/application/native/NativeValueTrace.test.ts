@@ -181,52 +181,71 @@ describe("native value parameter-use node membership", () => {
     });
   });
 
-  it("preserves operation IDs that collide with generated parameter IDs", async () => {
-    const base = functionDossierSchema.parse(ghidraFunctionDossier());
-    const address = base.procedure.address;
-    const execution = createAnalysisExecution(
-      {
-        ...base,
-        native_value_flow: {
-          available: true,
-          provenance: "ghidra-high-pcode",
-          operations: [
-            node("parameter:0", address, "COPY"),
-            node("use", address, "COPY"),
-          ],
-          def_use: [],
-          effects: [],
-          parameters: [{ ordinal: 0, name: "value", data_type: "/int" }],
-          parameter_uses: [{ ordinal: 0, use: "use", input_index: 1 }],
-          truncated: false,
-          omitted_operations_lower_bound: 0,
-          known_omitted_inputs: 0,
-          known_omitted_edges: 0,
-          limitations: [],
-        },
-      },
-      provider,
-      { subject },
-    );
-    const result = await traceNativeValues(
-      { execute: async () => ok(execution) },
-      { procedure: address, max_nodes: 2 },
-    );
-
-    if (!result.ok) throw result.error;
-    const parsedResult = nativeValueTraceSchema.parse(result.value);
-    expect(parsedResult).toMatchObject({
-      total_nodes: 2,
-      total_edges: 1,
-      edges: [
+  it.each([3, 4])(
+    "keeps parameter identity separate from colliding operation IDs with max_nodes=%i",
+    async (max_nodes) => {
+      const base = functionDossierSchema.parse(ghidraFunctionDossier());
+      const address = base.procedure.address;
+      const execution = createAnalysisExecution(
         {
-          source: `${address}/parameter:0`,
-          target: `${address}/use`,
-          kind: "parameter-use",
+          ...base,
+          native_value_flow: {
+            available: true,
+            provenance: "ghidra-high-pcode",
+            operations: [
+              node("parameter:0", address, "COPY"),
+              node("parameter:0#1", address, "COPY"),
+              node("use", address, "COPY"),
+            ],
+            def_use: [],
+            effects: [],
+            parameters: [{ ordinal: 0, name: "value", data_type: "/int" }],
+            parameter_uses: [{ ordinal: 0, use: "use", input_index: 1 }],
+            truncated: false,
+            omitted_operations_lower_bound: 0,
+            known_omitted_inputs: 0,
+            known_omitted_edges: 0,
+            limitations: [],
+          },
         },
-      ],
-    });
-  });
+        provider,
+        { subject },
+      );
+      const result = await traceNativeValues(
+        { execute: async () => ok(execution) },
+        { procedure: address, max_nodes },
+      );
+
+      if (!result.ok) throw result.error;
+      const parsedResult = nativeValueTraceSchema.parse(result.value);
+      expect(parsedResult).toMatchObject({
+        total_nodes: max_nodes,
+        total_edges: max_nodes === 3 ? 0 : 1,
+        edges:
+          max_nodes === 3
+            ? []
+            : [
+                {
+                  source: `${address}/parameter:0#2`,
+                  target: `${address}/use`,
+                  kind: "parameter-use",
+                },
+              ],
+      });
+      expect(
+        parsedResult.nodes
+          .filter(({ kind }) => kind === "operation")
+          .map(({ id }) => id),
+      ).toEqual([
+        `${address}/parameter:0`,
+        `${address}/parameter:0#1`,
+        `${address}/use`,
+      ]);
+      expect(new Set(parsedResult.nodes.map(({ id }) => id)).size).toBe(
+        max_nodes,
+      );
+    },
+  );
 });
 
 const nativeFlowDossier = (
@@ -560,6 +579,31 @@ describe("native value trace selector origin", () => {
 });
 
 describe("native value node byte budgets", () => {
+  it("stops admitting parameters after an operation exceeds the byte budget", async () => {
+    const base = functionDossierSchema.parse(ghidraFunctionDossier());
+    const value = nativeFlowDossier(base, {
+      address: "0x1000",
+      name: "caller",
+      operations: [node("use", "0x1000", "a".repeat(9 * 1024 * 1024))],
+      parameters: [{ ordinal: 0, name: "value", data_type: "/int" }],
+    });
+    const result = await traceNativeValues(
+      {
+        execute: async () =>
+          ok(createAnalysisExecution(value, provider, { subject })),
+      },
+      { procedure: "0x1000" },
+    );
+    if (!result.ok) throw result.error;
+    expect(nativeValueTraceSchema.parse(result.value)).toMatchObject({
+      truncated: true,
+      total_nodes: 0,
+      total_edges: 0,
+      nodes: [],
+      edges: [],
+    });
+  });
+
   it.each([
     { label: "plain text", name: "a".repeat(9 * 1024 * 1024) },
     { label: "JSON escapes", name: "\0".repeat(2 * 1024 * 1024) },
@@ -568,7 +612,10 @@ describe("native value node byte budgets", () => {
     const value = nativeFlowDossier(base, {
       address: "0x1000",
       name: "caller",
-      operations: [node("use", "0x1000", "MULTIEQUAL")],
+      operations: [
+        node("parameter:0", "0x1000", "COPY"),
+        node("use", "0x1000", "MULTIEQUAL"),
+      ],
       parameters: [{ ordinal: 0, name, data_type: "/int" }],
     });
     const parsed = functionDossierSchema.parse(value);
@@ -588,9 +635,12 @@ describe("native value node byte budgets", () => {
     const trace = nativeValueTraceSchema.parse(result.value);
     expect(trace).toMatchObject({
       truncated: true,
-      total_nodes: 1,
+      total_nodes: 2,
       total_edges: 0,
-      nodes: [expect.objectContaining({ kind: "operation" })],
+      nodes: [
+        expect.objectContaining({ kind: "operation" }),
+        expect.objectContaining({ kind: "operation" }),
+      ],
     });
   });
 

@@ -24,7 +24,6 @@ export const traceNativeValues = async (
 ): EnhancedResult => {
   const input = nativeValueTraceInputSchema.parse(parameters);
   const nodes: typeof nativeValueTraceSchema._output.nodes = [];
-  const nodeIds = new Set<string>();
   const edges: typeof nativeValueTraceSchema._output.edges = [];
   const procedures: typeof nativeValueTraceSchema._output.procedures = [];
   const unknowns: typeof nativeValueTraceSchema._output.unknowns = [];
@@ -64,7 +63,6 @@ export const traceNativeValues = async (
     }
     bytes += size;
     nodes.push(value);
-    nodeIds.add(value.id);
     return true;
   };
   while (pending.length > 0) {
@@ -162,6 +160,10 @@ export const traceNativeValues = async (
       });
     }
     const ids = new Set<string>();
+    // Keep generated parameter identity independent of which operations fit
+    // the budget, while preserving every provider-supplied operation ID.
+    const operationIds = new Set(flow.operations.map(({ id }) => id));
+    const parameterIds = new Map<number, string>();
     const qualified = (id: string) => `${address}/${id}`;
     for (const operation of flow.operations) {
       if (
@@ -181,7 +183,11 @@ export const traceNativeValues = async (
       ids.add(operation.id);
     }
     for (const parameter of flow.parameters) {
-      const id = `${address}/parameter:${parameter.ordinal}`;
+      const parameterId = `parameter:${parameter.ordinal}`;
+      let localId = parameterId;
+      for (let suffix = 1; operationIds.has(localId); suffix++)
+        localId = `${parameterId}#${suffix}`;
+      const id = qualified(localId);
       if (
         !retainNode({
           id,
@@ -193,19 +199,17 @@ export const traceNativeValues = async (
         })
       )
         break;
+      parameterIds.set(parameter.ordinal, id);
     }
     for (const use of flow.parameter_uses) {
-      if (
-        !ids.has(use.use) ||
-        !nodeIds.has(`${address}/parameter:${use.ordinal}`)
-      )
-        continue;
+      const source = parameterIds.get(use.ordinal);
+      if (!ids.has(use.use) || source === undefined) continue;
       if (edges.length >= input.max_edges) {
         truncated = true;
         break;
       }
       edges.push({
-        source: `${address}/parameter:${use.ordinal}`,
+        source,
         target: qualified(use.use),
         input_index: use.input_index,
         kind: "parameter-use",
