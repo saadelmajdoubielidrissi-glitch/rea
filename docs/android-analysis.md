@@ -43,14 +43,14 @@ package consumers as well as repository checkouts; the repository-only
 On macOS or Linux, choose a destination and verify the pinned digest:
 
 ```sh
-mkdir -p "$HOME/.local/share/rea/android"
-cd "$HOME/.local/share/rea/android"
-curl -fL -o jadx-headless-mcp-0.7.1-all.jar https://github.com/1013503897/jadx-headless-mcp/releases/download/v0.7.1/jadx-headless-mcp-0.7.1-all.jar
+mkdir -p "$HOME/.local/share/rea/android" &&
+cd "$HOME/.local/share/rea/android" &&
+curl -fL -o jadx-headless-mcp-0.7.1-all.jar https://github.com/1013503897/jadx-headless-mcp/releases/download/v0.7.1/jadx-headless-mcp-0.7.1-all.jar &&
 if command -v sha256sum >/dev/null; then
   echo '6e5eacf500b64292bfb73c49797c1958f6ee44646e43e868039ae7feb573ff75  jadx-headless-mcp-0.7.1-all.jar' | sha256sum -c -
 else
   echo '6e5eacf500b64292bfb73c49797c1958f6ee44646e43e868039ae7feb573ff75  jadx-headless-mcp-0.7.1-all.jar' | shasum -a 256 -c -
-fi
+fi &&
 export REA_JADX_MCP_JAR="$PWD/jadx-headless-mcp-0.7.1-all.jar"
 ```
 
