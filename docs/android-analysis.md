@@ -32,14 +32,18 @@ unverified.
 
 ## Supply tools
 
-Use a **full JDK 17 or newer** (including its compiler module) and
-[**jadx-headless-mcp 0.7.1**](https://github.com/1013503897/jadx-headless-mcp/releases/download/v0.7.1/jadx-headless-mcp-0.7.1-all.jar). REA runs its packaged Java metadata bridge in
-source-file mode against the unmodified engine JAR. REA does not install Java,
-an Android SDK, JADX, a device service or an emulator. Set the path in the shell
-or MCP server environment:
+Use a **full JDK 17 or newer** (including its compiler module) and the pinned
+**jadx-headless-mcp 0.7.1** JAR. Fetch it with `npm run fixtures:android`; that
+command verifies the published SHA-256 before making the fixture available.
+Do not use the mutable release-asset URL as an executable input without that
+verification. REA runs its packaged Java metadata bridge in source-file mode
+against the unmodified engine JAR. REA does not install Java, an Android SDK,
+JADX, a device service or an emulator. Set the path in the shell or MCP server
+environment:
 
 ```sh
-export REA_JADX_MCP_JAR=/absolute/path/jadx-headless-mcp-0.7.1-all.jar
+npm run fixtures:android
+export REA_JADX_MCP_JAR="$PWD/_reference/apk-integration/jadx-headless-mcp-0.7.1-all.jar"
 # Optional: select an existing JDK rather than java on PATH.
 export JAVA_HOME=/absolute/path/existing-jdk
 ```
@@ -51,7 +55,8 @@ PowerShell accepts paths containing spaces without additional escaping
 inside these environment values:
 
 ```powershell
-$env:REA_JADX_MCP_JAR = 'D:\tools\jadx-headless-mcp-0.7.1-all.jar'
+npm run fixtures:android
+$env:REA_JADX_MCP_JAR = "$PWD\_reference\apk-integration\jadx-headless-mcp-0.7.1-all.jar"
 $env:JAVA_HOME = 'D:\tools\jdk-21'
 rea inspect-android-package 'D:\targets\Example.apk'
 ```
