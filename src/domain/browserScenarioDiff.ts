@@ -1,5 +1,7 @@
 import type { BrowserScenarioCapture } from "./browserScenarioCapture.js";
 import type { BrowserScenarioStep } from "./browserScenarioCaptureValues.js";
+import { z } from "zod";
+import { digestCanonicalValue } from "./canonicalDigest.js";
 import {
   actionState,
   artifactEvidenceState,
@@ -8,7 +10,6 @@ import {
   eventFamilyCoverageReason,
   prepareScenarioEvents,
   networkContentCoverageReason,
-  orderNetworkTransactions,
   screenshotProjection,
   type CaptureState,
 } from "./browserScenarioDiffEvidence.js";
@@ -25,7 +26,13 @@ import {
 import {
   commitBrowserScenarioNormalization,
   digestNormalizedScenarioValue,
+  normalizeScenarioValue,
 } from "./browserScenarioNormalization.js";
+
+const scenarioEventsValueSchema = z.strictObject({
+  events: z.array(z.unknown()),
+  network_transactions: z.array(z.string()),
+});
 
 type ComparableArtifact = {
   readonly artifact: BrowserScenarioArtifactKind;
@@ -339,14 +346,13 @@ const compareStepArtifacts = (
       before: input.beforeStep.artifacts.storage,
       after: input.afterStep.artifacts.storage,
     }),
-    compareCapturedValues({
+    compareScenarioEvents({
       ...common,
       artifact: "events",
       before: captured(input.beforeEvents.forStep(input.beforeStep.step_index)),
       after: captured(input.afterEvents.forStep(input.afterStep.step_index)),
       beforeState: eventEvidenceState(input.beforeCapture, input.beforeStep),
       afterState: eventEvidenceState(input.afterCapture, input.afterStep),
-      order: orderNetworkTransactions,
       incomparableReason: eventCoverageReason(
         input.beforeCapture,
         input.afterCapture,
@@ -355,6 +361,117 @@ const compareStepArtifacts = (
       ),
     }),
   ];
+};
+
+const compareScenarioEvents = (
+  input: CompareCapturedValuesInput<{
+    readonly events: readonly unknown[];
+    readonly network_transactions: readonly string[];
+  }>,
+): ComparableArtifact => {
+  const beforeState =
+    input.beforeState ??
+    artifactEvidenceState(input.artifact, input.before, input.beforeStep);
+  const afterState =
+    input.afterState ??
+    artifactEvidenceState(input.artifact, input.after, input.afterStep);
+  if (beforeState === "not_requested" && afterState === "not_requested")
+    return { artifact: input.artifact, status: "not_compared", diff: null };
+  const beforeValue =
+    input.before.state === "captured" ? input.before.value : undefined;
+  const afterValue =
+    input.after.state === "captured" ? input.after.value : undefined;
+  const isCaptured =
+    beforeState === "captured" &&
+    afterState === "captured" &&
+    beforeValue !== undefined &&
+    afterValue !== undefined;
+  const ordinaryBeforeDigest =
+    beforeValue === undefined
+      ? null
+      : digestCanonicalValue(
+          normalizeScenarioValue(beforeValue.events, "events", input.rules),
+          "Browser scenario",
+        );
+  const ordinaryAfterDigest =
+    afterValue === undefined
+      ? null
+      : digestCanonicalValue(
+          normalizeScenarioValue(afterValue.events, "events", input.rules),
+          "Browser scenario",
+        );
+  const beforeSha256 =
+    isCaptured && beforeValue !== undefined
+      ? digestScenarioEvents(beforeValue, ordinaryBeforeDigest)
+      : null;
+  const afterSha256 =
+    isCaptured && afterValue !== undefined
+      ? digestScenarioEvents(afterValue, ordinaryAfterDigest)
+      : null;
+  const changedOrdinaryEvents =
+    isCaptured && ordinaryBeforeDigest !== ordinaryAfterDigest;
+  if (changedOrdinaryEvents)
+    return {
+      artifact: input.artifact,
+      status: "changed",
+      diff: {
+        artifact: input.artifact,
+        status: "changed",
+        before_state: beforeState,
+        after_state: afterState,
+        before_sha256: beforeSha256,
+        after_sha256: afterSha256,
+        reason: null,
+      },
+    };
+  if (!isCaptured || input.incomparableReason !== undefined)
+    return {
+      artifact: input.artifact,
+      status: "unknown",
+      diff: {
+        artifact: input.artifact,
+        status: "unknown",
+        before_state: beforeState,
+        after_state: afterState,
+        before_sha256: beforeSha256,
+        after_sha256: afterSha256,
+        reason:
+          input.incomparableReason ??
+          `Artifact coverage is not comparable (${beforeState} before, ${afterState} after).`,
+      },
+    };
+  if (beforeSha256 === null || afterSha256 === null)
+    throw new TypeError("Captured event digest refinement failed");
+  if (beforeSha256 === afterSha256)
+    return { artifact: input.artifact, status: "unchanged", diff: null };
+  return {
+    artifact: input.artifact,
+    status: "changed",
+    diff: {
+      artifact: input.artifact,
+      status: "changed",
+      before_state: beforeState,
+      after_state: afterState,
+      before_sha256: beforeSha256,
+      after_sha256: afterSha256,
+      reason: null,
+    },
+  };
+};
+
+const digestScenarioEvents = (
+  value: unknown,
+  ordinaryEventsDigest: string | null,
+): string => {
+  const parsed = scenarioEventsValueSchema.parse(value);
+  return digestCanonicalValue(
+    {
+      ordinary_events_sha256: ordinaryEventsDigest,
+      // These are already normalized SHA-256 transaction fingerprints.
+      network_transactions: parsed.network_transactions,
+    },
+    "Browser scenario",
+  );
 };
 
 const eventCoverageReason = (

@@ -365,9 +365,7 @@ describe("browser scenario network event order", () => {
           ? {
               ...event,
               redirected_from_transaction_id: predecessor,
-              ...(predecessor === null
-                ? { redirected_from_transaction_state: undefined }
-                : {}),
+              redirected_from_transaction_state: undefined,
             }
           : event,
       );
@@ -392,6 +390,77 @@ describe("browser scenario network event order", () => {
         }),
       );
     }
+  });
+
+  it("keeps normalization away from generated network fingerprints", () => {
+    const rules = [..."0123456789abcdef"].map((match, index) => ({
+      rule_id: `remove-fingerprint-hex-${String(index)}`,
+      artifacts: ["events"] as const,
+      match,
+      replacement: "",
+    }));
+    const compared = compareBrowserScenarios(
+      compareBrowserScenariosInputSchema.parse({
+        before_scenario: concurrentCapture(["a", "b"], {
+          a: 200,
+          b: 404,
+        }),
+        after_scenario: concurrentCapture(["a", "b"], {
+          a: 201,
+          b: 404,
+        }),
+        normalization: { rules },
+      }),
+    );
+    expect(compared.overall_status).toBe("changed");
+  });
+
+  it("reports changed ordinary events despite incomplete redirect ancestry", () => {
+    const withGap = (text: string) => {
+      const base = scenarioCapture({});
+      const consoleEvent = base.events.items[0];
+      if (consoleEvent?.kind !== "console")
+        throw new Error("Expected console fixture");
+      return browserScenarioCaptureSchema.parse({
+        ...base,
+        scenario: {
+          ...base.scenario,
+          event_families: ["console", "network"],
+        },
+        events: {
+          retained: 2,
+          dropped: 0,
+          items: [
+            { ...consoleEvent, text },
+            {
+              sequence: 2,
+              step_index: 0,
+              kind: "request",
+              transaction_id: "orphan-request",
+              redirected_from_transaction_id: null,
+              method: "GET",
+              url: {
+                url: "https://app.example.test/orphan",
+                origin: "https://app.example.test",
+                query_parameter_names: [],
+                redacted: false,
+              },
+              resource_type: "fetch",
+              header_names: [],
+              status: null,
+              failure: null,
+            },
+          ],
+        },
+      });
+    };
+    const compared = compareBrowserScenarios(
+      compareBrowserScenariosInputSchema.parse({
+        before_scenario: withGap("settings-ready"),
+        after_scenario: withGap("settings-failed"),
+      }),
+    );
+    expect(compared.overall_status).toBe("changed");
   });
 
   it("compares concurrent network transactions without receipt order, receipt step or capture-local IDs", () => {

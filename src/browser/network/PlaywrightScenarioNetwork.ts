@@ -236,7 +236,11 @@ export class PlaywrightScenarioNetwork {
     return {
       transaction_id: transaction.id,
       redirected_from_transaction_id: transaction.redirectedFrom,
-      redirected_from_transaction_state: transaction.redirectedFromState,
+      ...(transaction.redirectedFromState === undefined
+        ? {}
+        : {
+            redirected_from_transaction_state: transaction.redirectedFromState,
+          }),
       method: this.options.secrets.redact(request.method()),
       url: this.options.secrets.sanitizeUrl(request.url()),
       resource_type: this.options.secrets.redact(request.resourceType()),
