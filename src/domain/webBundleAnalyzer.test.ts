@@ -374,6 +374,53 @@ describe("web bundle API classification parity", () => {
   });
 });
 
+describe("web bundle query-only endpoint references", () => {
+  it("recognizes explicit query references after excluding lookup receivers", () => {
+    const query = "?page=2&tag=a&tag=b#section";
+    const source = `
+      api.get(${JSON.stringify(query)});
+      api.request("?");
+      xhr.open(method, "?view=1");
+      xhr.open("GET", "?literal=1");
+      api.get("users");
+      request("POST", target);
+      snackBar.open(message, "X");
+      new Map().get("?map-key");
+      new Headers().delete("?header-key");
+      new URLSearchParams().get("?parameter-key");
+      response.headers.get("?response-key");
+      const config = vscode.workspace.getConfiguration("git");
+      config.get("?setting");
+      window.open(url, "?window-target");
+      indexedDB.open(name, "?database-version");
+    `;
+    const expected = ["?", "?literal=1", query, "?view=1"];
+    const web = analyzeCapturedWebBundle(inspection(source));
+    expect(web.observations.endpoints.map(({ value }) => value).sort()).toEqual(
+      expected,
+    );
+    expect(
+      web.inferences
+        .filter(({ kind }) => kind === "endpoint_candidate")
+        .map(({ value }) => value)
+        .sort(),
+    ).toEqual(["POST", "X", "users"]);
+    const analyzed = analyzeJavaScriptStaticSource(source);
+    expect(
+      analyzed.endpoints
+        .filter(({ interpretation }) => interpretation === undefined)
+        .map(({ value }) => value)
+        .sort(),
+    ).toEqual(expected);
+    expect(
+      analyzed.endpoints
+        .filter(({ interpretation }) => interpretation === "candidate")
+        .map(({ value }) => value)
+        .sort(),
+    ).toEqual(["POST", "X", "users"]);
+  });
+});
+
 describe("web bundle endpoint candidate classification", () => {
   it("keeps ambiguous HTTP-method arguments as candidates instead of endpoint observations", () => {
     const source = `

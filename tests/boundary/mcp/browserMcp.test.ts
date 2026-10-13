@@ -153,6 +153,9 @@ it(
 
 it("keeps ambiguous endpoint candidates distinct through CLI and MCP", async () => {
   const source = `fetch("login"); http.get("/api/users");
+    api.get("?page=2&tag=a&tag=b#section"); api.request("?");
+    xhr.open(method, "?view=1"); new Map().get("?lookup");
+    const config = vscode.workspace.getConfiguration("git"); config.get("?setting");
     form.get("passwordControl"); translate.get("ADDRESS_ADDED");
     cookie.put("token", value); request("POST", target);
     snackBar.open(message, "X");\n${'form.get("passwordControl");\n'.repeat(2_000)}`;
@@ -188,7 +191,13 @@ it("keeps ambiguous endpoint candidates distinct through CLI and MCP", async () 
     const result = webBundleAnalysisSchema.parse(evidence.normalized_result);
     expect(
       result.observations.endpoints.map(({ value }) => value).sort(),
-    ).toEqual(["/api/users", "login"]);
+    ).toEqual([
+      "/api/users",
+      "?",
+      "?page=2&tag=a&tag=b#section",
+      "?view=1",
+      "login",
+    ]);
     const candidates = result.inferences.filter(
       ({ kind }) => kind === "endpoint_candidate",
     );

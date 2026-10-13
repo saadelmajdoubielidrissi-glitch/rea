@@ -253,8 +253,12 @@ the basis location is the first matching site, not an inventory of occurrences
 or a runtime call count. The bundle result retains source digests, not complete
 script text. Inspect captured script sources separately when all sites are
 needed, and match their artifact digest before treating them as the same source.
-Explicit URL/path literals and `fetch("login")` retain their existing syntax
-findings. Neither establishes a network request at runtime. Dynamic receivers,
+Explicit URL/path literals, query-only references such as `?page=2`, and
+`fetch("login")` retain their syntax findings. Query references are classified
+after the existing collection/configuration exclusions; their lookup keys do
+not become endpoints merely because they start with `?`. Original query text,
+parameter ordering and fragments are preserved. These findings do not establish
+a network request at runtime. Dynamic receivers,
 computed URLs and request overloads still need independent evidence.
 
 RPC client syntax also contributes network endpoint candidates, in both

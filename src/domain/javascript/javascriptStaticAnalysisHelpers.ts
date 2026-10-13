@@ -409,12 +409,16 @@ const XHR_METHODS = new Set([
   "TRACE",
 ]);
 
-/** An absolute HTTP(S)/WebSocket URL, or an absolute or relative path. */
-const isRequestUrlLiteral = (value: string): boolean =>
+/** Legacy URL/path shapes that bypass the overloaded lookup exclusions. */
+const isRequestUrlOrPathLiteral = (value: string): boolean =>
   /^(?:https?|wss?):\/\//iu.test(value) ||
   value.startsWith("/") ||
   value.startsWith("./") ||
   value.startsWith("../");
+
+/** Explicit request references, classified after receiver-specific exclusions. */
+const isRequestUrlReference = (value: string): boolean =>
+  isRequestUrlOrPathLiteral(value) || value.startsWith("?");
 
 /**
  * Browsing-context and document `open` take a URL or type first and a target
@@ -570,7 +574,7 @@ export const endpointArgument = (
     if (value === undefined) return undefined;
     return {
       kind:
-        stringValue(args[0]) !== undefined || isRequestUrlLiteral(value)
+        stringValue(args[0]) !== undefined || isRequestUrlReference(value)
           ? "endpoint"
           : "candidate",
       value,
@@ -587,13 +591,13 @@ export const endpointArgument = (
     if (value === undefined) return undefined;
     if (
       (method === "get" || method === "delete") &&
-      !isRequestUrlLiteral(value) &&
+      !isRequestUrlOrPathLiteral(value) &&
       (isKeyedCollectionReceiver(callee) ||
         (method === "get" && receiverFact === "configuration"))
     )
       return undefined;
     return {
-      kind: isRequestUrlLiteral(value) ? "endpoint" : "candidate",
+      kind: isRequestUrlReference(value) ? "endpoint" : "candidate",
       value,
     };
   }
