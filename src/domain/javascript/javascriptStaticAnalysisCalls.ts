@@ -57,7 +57,12 @@ export const inspectCall = (
   const first = stringValue(node.arguments[0]);
   const module = context.accumulator.moduleRangeIndex.find(node.start);
   const moduleRequireName = module?.requireName ?? null;
-  const requireCall = requireCallSpecifier(node, name, moduleRequireName);
+  const requireCall = requireCallSpecifier(
+    node,
+    name,
+    moduleRequireName,
+    isUnmodifiedGlobalReference(node.callee, bindings, name),
+  );
   if (requireCall !== null)
     addReference(context, {
       node,
@@ -214,8 +219,13 @@ const requireCallSpecifier = (
   node: JavaScriptCallLike,
   name: string,
   moduleRequireName: string | null,
+  isGlobalRequire: boolean,
 ): { readonly specifier: string | undefined } | null => {
-  if (name === "require" || name.endsWith(".require"))
+  // A name alone does not make a loader call: a local binding named `require`
+  // shadows the ambient loader, so only an unshadowed reference to it counts.
+  // The module's own factory require name is a real binding, so it keeps its
+  // own lane below.
+  if (name === "require" && isGlobalRequire)
     return { specifier: argumentValue(node.arguments[0]) };
   if (name === "__webpack_require__" || name === moduleRequireName)
     return { specifier: argumentValue(node.arguments[0]) };
