@@ -12,6 +12,10 @@ import type { AnalysisError } from "../../domain/analysisErrorBase.js";
 import type { Result } from "../../domain/result.js";
 import type { EvidenceIntegrityError } from "../../domain/evidenceErrors.js";
 import type { WorkflowSnapshotRecordInput } from "./BinarySessionRecords.js";
+import type {
+  BinarySessionOpenOptions,
+  ResolvedSessionOpen,
+} from "./BinarySessionOpen.js";
 
 import type {
   AnalysisExecution,
@@ -48,10 +52,16 @@ export interface BinarySessionPort
     signal: AbortSignal | undefined,
     operation: (analysis: AnalysisOperationPort) => Promise<Value>,
   ): Promise<Result<Value, AnalysisError>>;
+  /** Resolve a path with session-owned resources without opening a provider. */
+  previewPath(
+    path: string,
+    options?: BinarySessionOpenOptions,
+  ): Promise<Result<ResolvedSessionOpen, AnalysisError>>;
   open(
     path: string,
     options?: {
       readonly signal?: AbortSignal;
+      readonly dsymPath?: string;
       readonly targetKind?: BinaryTarget["kind"];
       readonly formatHint?: ExecutableFormatHint;
       readonly architecture?: BinaryArchitecture;

@@ -24,12 +24,8 @@ import type { AnalysisError } from "../domain/analysisErrorBase.js";
 import { access } from "node:fs/promises";
 import { readAnalysisSnapshot } from "./binary/AnalysisSnapshotFiles.js";
 import { requiresNativeSourceAdmissionBeforeReplay } from "./binary/AnalysisSnapshotCache.js";
-import { parseBinaryTarget } from "./BinaryTargetResolver.js";
 import type { BinaryTarget } from "../domain/binaryTargetTypes.js";
-import {
-  snapshotEvidenceForQuery,
-  snapshotMatchesTarget,
-} from "../domain/analysisSnapshot.js";
+import { snapshotEvidenceForQuery } from "../domain/analysisSnapshot.js";
 import type { AnalysisProfileCommitment } from "../domain/analysisProfile.js";
 import { err, ok, type Result } from "../domain/result.js";
 import type { AnalysisSnapshot } from "../domain/analysisSnapshot.js";
@@ -96,6 +92,7 @@ export const runDirectAnalysis = async (
     readonly formatHint?: ExecutableFormatHint;
     readonly architecture?: BinaryArchitecture;
     readonly entryPoint?: string;
+    readonly dsymPath?: string;
   } = {},
 ): Promise<JsonValue> =>
   withProcessCancellation(options.signal, (signal) =>
@@ -112,6 +109,7 @@ export const runDirectAnalysis = async (
       ...(options.entryPoint === undefined
         ? {}
         : { entryPoint: options.entryPoint }),
+      ...(options.dsymPath === undefined ? {} : { dsymPath: options.dsymPath }),
       ...(options.providerId === undefined
         ? {}
         : { providerId: options.providerId }),
@@ -208,6 +206,7 @@ const runAnalysis = async (
     readonly formatHint?: ExecutableFormatHint;
     readonly architecture?: BinaryArchitecture;
     readonly entryPoint?: string;
+    readonly dsymPath?: string;
   },
 ): Promise<JsonValue> => {
   const { logger, signal, snapshotPath } = options;
@@ -217,25 +216,12 @@ const runAnalysis = async (
   return withSessionCleanup(
     session,
     async () => {
-      const prepared = await prepareSnapshot({
-        path,
-        snapshotPath,
-        signal,
-        ...(options.formatHint === undefined
-          ? {}
-          : { formatHint: options.formatHint }),
-        ...(options.architecture === undefined
-          ? {}
-          : { architecture: options.architecture }),
-        ...(options.entryPoint === undefined
-          ? {}
-          : { entryPoint: options.entryPoint }),
-      });
+      const prepared = await prepareSnapshot({ snapshotPath, signal });
       if (!prepared.ok) return cliError(prepared.error);
       const { snapshot } = prepared.value;
       let resolvedTarget: ResolvedSessionOpen | undefined;
-      if (snapshot !== undefined && prepared.value.target !== undefined) {
-        const preview = await session.previewTarget(prepared.value.target, {
+      if (snapshot !== undefined) {
+        const preview = await session.previewPath(path, {
           signal,
           snapshot,
           ...(options.formatHint === undefined
@@ -247,6 +233,9 @@ const runAnalysis = async (
           ...(options.entryPoint === undefined
             ? {}
             : { entryPoint: options.entryPoint }),
+          ...(options.dsymPath === undefined
+            ? {}
+            : { dsymPath: options.dsymPath }),
           ...(options.providerId === undefined
             ? {}
             : { providerId: options.providerId }),
@@ -290,6 +279,9 @@ const runAnalysis = async (
         ...(options.entryPoint === undefined
           ? {}
           : { entryPoint: options.entryPoint }),
+        ...(options.dsymPath === undefined
+          ? {}
+          : { dsymPath: options.dsymPath }),
         ...(snapshot === undefined ? {} : { snapshot }),
         ...(options.providerId === undefined
           ? {}
@@ -355,7 +347,7 @@ const runAnalysis = async (
           const recovered =
             written.error instanceof EvidenceFileError &&
             written.error.published !== undefined &&
-            (await session.closeWriteResources()).ok;
+            (await session.closeFileResources()).ok;
           if (!recovered)
             return cliError(written.error.retainPartialObservation(evidence));
         }
@@ -491,43 +483,15 @@ const withProcessCancellation = async <Value>(
 };
 
 const prepareSnapshot = async (options: {
-  readonly path: string;
-  readonly formatHint?: ExecutableFormatHint;
-  readonly architecture?: BinaryArchitecture;
-  readonly entryPoint?: string;
   readonly snapshotPath: string | undefined;
   readonly signal: AbortSignal;
 }): Promise<
-  Result<
-    { readonly snapshot?: AnalysisSnapshot; readonly target?: BinaryTarget },
-    AnalysisError
-  >
+  Result<{ readonly snapshot?: AnalysisSnapshot }, AnalysisError>
 > => {
-  const { path, snapshotPath } = options;
+  const { snapshotPath } = options;
   if (snapshotPath === undefined || !(await fileExists(snapshotPath)))
     return ok({});
-  const loaded = await readAnalysisSnapshot(snapshotPath, options.signal);
-  if (!loaded.ok) return loaded;
-  const target = await parseBinaryTarget(path, {
-    signal: options.signal,
-    ...(options.formatHint === undefined
-      ? {}
-      : { formatHint: options.formatHint }),
-    ...(options.architecture === undefined
-      ? {}
-      : { architecture: options.architecture }),
-    ...(options.entryPoint === undefined
-      ? {}
-      : { entryPoint: options.entryPoint }),
-  });
-  if (!target.ok) return target;
-  if (!snapshotMatchesTarget(loaded.value.target, target.value))
-    return err(
-      new EvidenceIntegrityError(
-        "Analysis snapshot target does not match the requested binary",
-      ),
-    );
-  return ok({ snapshot: loaded.value, target: target.value });
+  return readAnalysisSnapshot(snapshotPath, options.signal);
 };
 
 const allowsSnapshotReplay = (
