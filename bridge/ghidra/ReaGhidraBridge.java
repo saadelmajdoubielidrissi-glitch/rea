@@ -883,8 +883,9 @@ public final class ReaGhidraBridge extends HeadlessScript {
             String value = decompiledText(decompile(function));
             JsonObject result = functionObservation(
                 value == null ? JsonNull.INSTANCE : GSON.toJsonTree(value),
-                noReturnCallLimitations(
-                    currentProgram.getListing().getInstructions(function.getBody(), true)
+                functionBoundaryLimitations(
+                    currentProgram.getListing().getInstructions(function.getBody(), true),
+                    function
                 )
             );
             if (selection.size() > 0) result.add("selection", selection);
@@ -975,7 +976,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
         InstructionScan scan = scanInstructions(function, Integer.MAX_VALUE);
         return functionObservation(
             GSON.toJsonTree(renderAssembly(scan.instructions)),
-            noReturnCallLimitations(scan.instructions)
+            functionBoundaryLimitations(scan.instructions, function)
         );
     }
 
@@ -994,7 +995,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
         limitations.add(
             "The fast path does not invoke the decompiler or scan whole-program names and strings."
         );
-        List<String> boundaryLimitations = noReturnCallLimitations(scan.instructions);
+        List<String> boundaryLimitations = functionBoundaryLimitations(scan.instructions, function);
         for (String limitation : boundaryLimitations) limitations.add(limitation);
         JsonObject result = new JsonObject();
         result.add("procedure", procedureIdentity(function));
@@ -1018,8 +1019,9 @@ public final class ReaGhidraBridge extends HeadlessScript {
         }
         return functionObservation(
             result,
-            noReturnCallLimitations(
-                currentProgram.getListing().getInstructions(function.getBody(), true)
+            functionBoundaryLimitations(
+                currentProgram.getListing().getInstructions(function.getBody(), true),
+                function
             )
         );
     }
@@ -1040,8 +1042,9 @@ public final class ReaGhidraBridge extends HeadlessScript {
         result.add("classification", functionClassification(function));
         return functionObservation(
             result,
-            noReturnCallLimitations(
-                currentProgram.getListing().getInstructions(function.getBody(), true)
+            functionBoundaryLimitations(
+                currentProgram.getListing().getInstructions(function.getBody(), true),
+                function
             )
         );
     }
@@ -1563,7 +1566,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
                 "Swift String literal decoding is implemented for AArch64 register pairs only; no Swift literals were decoded for this architecture."
             );
         }
-        List<String> boundaryLimitations = noReturnCallLimitations(scan.instructions);
+        List<String> boundaryLimitations = functionBoundaryLimitations(scan.instructions, function);
         for (String limitation : boundaryLimitations) {
             limitations.add(limitation);
         }
@@ -3322,6 +3325,94 @@ public final class ReaGhidraBridge extends HeadlessScript {
             limitations.add(limitation.toString());
         }
         return limitations;
+    }
+
+    private List<String> functionBoundaryLimitations(
+            Iterable<Instruction> instructions, Function function) throws Exception {
+        List<Instruction> materialized = new ArrayList<>();
+        for (Instruction instruction : instructions) {
+            monitor.checkCancelled();
+            materialized.add(instruction);
+        }
+        List<String> limitations = noReturnCallLimitations(materialized);
+        limitations.addAll(sehHandlerLimitations(materialized, function));
+        return limitations;
+    }
+
+    /**
+     * Reports Borland/Delphi SEH handler registrations whose handler address
+     * falls outside the function's analyzed body. Ghidra only reaches the
+     * handler through the SEH chain, so callees, strings, and references below
+     * silently omit the handler region unless the reader is warned.
+     */
+    private List<String> sehHandlerLimitations(
+            List<Instruction> instructions, Function function) throws Exception {
+        List<String> limitations = new ArrayList<>();
+        for (int index = 0; index + 2 < instructions.size(); index++) {
+            monitor.checkCancelled();
+            Address handler = sehHandlerAddress(
+                instructions.get(index), instructions.get(index + 1), instructions.get(index + 2));
+            if (handler == null || function.getBody().contains(handler)) {
+                continue;
+            }
+            limitations.add(
+                "Ghidra Listing shows a Borland/Delphi SEH frame registration at "
+                    + canonicalAddress(instructions.get(index).getAddress())
+                    + " (push "
+                    + canonicalAddress(handler)
+                    + " followed by fs-segment stack chaining); the handler "
+                    + canonicalAddress(handler)
+                    + " lies outside this procedure's body, so callees, strings, and cross-references may omit the handler region.");
+        }
+        return limitations;
+    }
+
+    /**
+     * Matches the Borland/Delphi SEH prologue triple {@code push imm32;
+     * push fs:[reg]; mov fs:[reg], esp} and returns the registered handler
+     * address, or null when the three instructions do not form the pattern.
+     */
+    private Address sehHandlerAddress(
+            Instruction pushImmediate, Instruction pushSegment, Instruction moveSegment) {
+        if (!isPushMnemonic(pushImmediate)
+                || pushImmediate.getNumOperands() != 1
+                || !isFsSegmentPush(pushSegment)
+                || !isFsSegmentMove(moveSegment)) {
+            return null;
+        }
+        Object[] operands = pushImmediate.getOpObjects(0);
+        if (operands.length != 1
+                || !(operands[0] instanceof Scalar scalar)
+                || scalar.bitLength() != 32) {
+            return null;
+        }
+        return currentProgram.getAddressFactory().getDefaultAddressSpace()
+            .getAddress(scalar.getUnsignedValue());
+    }
+
+    private boolean isPushMnemonic(Instruction instruction) {
+        return instruction.getMnemonicString().equalsIgnoreCase("PUSH");
+    }
+
+    private boolean isFsSegmentPush(Instruction instruction) {
+        return isPushMnemonic(instruction)
+            && instruction.getNumOperands() == 1
+            && instruction.getDefaultOperandRepresentation(0).toLowerCase(Locale.ROOT).contains("fs:");
+    }
+
+    private boolean isFsSegmentMove(Instruction instruction) {
+        if (!instruction.getMnemonicString().equalsIgnoreCase("MOV")
+                || instruction.getNumOperands() != 2
+                || !instruction.getDefaultOperandRepresentation(0)
+                    .toLowerCase(Locale.ROOT).contains("fs:")) {
+            return false;
+        }
+        for (Object object : instruction.getOpObjects(1)) {
+            if (object instanceof Register register && register.getName().equalsIgnoreCase("ESP")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static String renderAssembly(List<Instruction> instructions) {

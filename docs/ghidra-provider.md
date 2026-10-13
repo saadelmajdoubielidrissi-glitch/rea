@@ -151,10 +151,14 @@ overview merely because its source artifact is unchanged.
 
 Function extents and instruction completeness refer to Ghidra's analyzed body.
 An inferred no-return call can terminate that body before subsequent bytes.
+Borland/Delphi `try` blocks register their handlers through the SEH chain
+(`push imm32; push fs:[reg]; mov fs:[reg], esp`), which Ghidra's flow model
+does not follow, so the handler region can fall outside the analyzed body.
 Pseudocode, assembly, procedure info, instruction windows, callee and caller
-reads, and dossiers report observed terminal call sites in Evidence limitations,
-including resolved callee names, addresses, and FunctionManager flags when
-available. Instruction windows
+reads, and dossiers report observed terminal call sites and excluded SEH
+handler registrations in Evidence limitations, including resolved callee
+names, addresses, and FunctionManager flags when available. Instruction
+windows
 and dossiers also retain these warnings in their result limitations. An
 unresolved callee or unestablished terminal-flow basis remains explicit. These
 observations qualify the analysis; they do not prove that a no-return flag is
