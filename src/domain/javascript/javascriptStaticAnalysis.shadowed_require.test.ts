@@ -31,6 +31,41 @@ describe("static require loader calls", () => {
     ).toEqual(["./created.cjs"]);
   });
 
+  it("follows an aliased createRequire import from node:module", () => {
+    expect(
+      requireSpecifiers(`
+        import { createRequire as makeRequire } from "node:module";
+        const require = makeRequire(import.meta.url);
+        const loaded = require("./aliased.cjs");
+      `),
+    ).toEqual(["./aliased.cjs"]);
+  });
+
+  it("does not treat a local createRequire function as Node's factory", () => {
+    expect(
+      requireSpecifiers(`
+        function createRequire() { return () => "local"; }
+        const require = createRequire();
+        const loaded = require("./ghost.cjs");
+      `),
+    ).toEqual([]);
+  });
+
+  it("keeps the CommonJS wrapper loader separate from globalThis.require", () => {
+    expect(
+      requireSpecifiers(`
+        globalThis.require = shim;
+        const loaded = require("./wrapper.cjs");
+      `),
+    ).toEqual(["./wrapper.cjs"]);
+  });
+
+  it("keeps an uninitialized top-level var redeclaration of the wrapper loader", () => {
+    expect(requireSpecifiers('var require; require("./wrapper.cjs");')).toEqual(
+      ["./wrapper.cjs"],
+    );
+  });
+
   it("ignores a require call that a local binding shadows", () => {
     expect(
       requireSpecifiers(`
