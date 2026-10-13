@@ -41,6 +41,8 @@ it
     }
     // A rejection must come from the fixture we are about to launch. An
     // existing Xvfb would otherwise mask a broken executable-identity check.
+    // The synthetic proc root isolates the positive identity check from
+    // unrelated restricted host processes while retaining display-name checks.
     await assertCleanLinuxHopperRuntime(
       alternateMode ? [launcher] : [],
       procRoot,
