@@ -12,6 +12,9 @@ import {
 import { err, ok } from "../../domain/result.js";
 import type { AnalysisOperationPort } from "../AnalysisProvider.js";
 import type { EnhancedResult } from "../EnhancedToolTypes.js";
+import { jsonParts } from "../../domain/jsonSerialization.js";
+
+const NODE_PAYLOAD_BYTES = 8 * 1024 * 1024;
 
 /** Compose bounded high-p-code def-use graphs across exactly referenced call destinations. */
 export const traceNativeValues = async (
@@ -40,6 +43,30 @@ export const traceNativeValues = async (
   let decompilations = 0;
   let callSites = 0;
   let bytes = 0;
+  let nodeBudgetReached = false;
+  const retainNode = (value: (typeof nodes)[number]): boolean => {
+    if (nodeBudgetReached) return false;
+    if (nodes.length >= input.max_nodes) {
+      truncated = true;
+      nodeBudgetReached = true;
+      return false;
+    }
+    let size = 0;
+    // Reuse bounded JSON encoding to count escapes and UTF-8 expansion
+    // before allocating a complete serialized node that might not fit.
+    for (const part of jsonParts(value)) {
+      size += Buffer.byteLength(part);
+      if (size > NODE_PAYLOAD_BYTES - bytes) {
+        truncated = true;
+        nodeBudgetReached = true;
+        return false;
+      }
+    }
+    bytes += size;
+    nodes.push(value);
+    nodeIds.add(value.id);
+    return true;
+  };
   while (pending.length > 0) {
     if (signal?.aborted)
       return err(new AnalysisCancelledError("trace_native_values"));
@@ -150,31 +177,22 @@ export const traceNativeValues = async (
         kind: "operation" as const,
         parameter: null,
       };
-      const size = Buffer.byteLength(JSON.stringify(node));
-      if (nodes.length >= input.max_nodes || bytes + size > 8 * 1024 * 1024) {
-        truncated = true;
-        break;
-      }
-      bytes += size;
+      if (!retainNode(node)) break;
       ids.add(operation.id);
-      nodes.push(node);
-      nodeIds.add(node.id);
     }
     for (const parameter of flow.parameters) {
-      if (nodes.length >= input.max_nodes) {
-        truncated = true;
-        break;
-      }
       const id = `${address}/parameter:${parameter.ordinal}`;
-      nodes.push({
-        id,
-        procedure: address,
-        evidence_id: evidenceId,
-        kind: "parameter",
-        operation: null,
-        parameter,
-      });
-      nodeIds.add(id);
+      if (
+        !retainNode({
+          id,
+          procedure: address,
+          evidence_id: evidenceId,
+          kind: "parameter",
+          operation: null,
+          parameter,
+        })
+      )
+        break;
     }
     for (const use of flow.parameter_uses) {
       if (
@@ -295,9 +313,10 @@ export const traceNativeValues = async (
     }
     if (
       truncated &&
-      (nodes.length >= input.max_nodes ||
+      (nodeBudgetReached ||
+        nodes.length >= input.max_nodes ||
         edges.length >= input.max_edges ||
-        bytes >= 8 * 1024 * 1024)
+        bytes >= NODE_PAYLOAD_BYTES)
     )
       break;
   }
