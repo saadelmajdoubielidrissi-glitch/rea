@@ -2,6 +2,7 @@ import type {
   BinaryArchitecture,
   ElfFamilyMetadata,
   HeaderArchitecture,
+  M68kElfMetadata,
   MipsElfMetadata,
   RiscvElfMetadata,
   UniversalMachOSlice,
@@ -28,6 +29,12 @@ export type ExecutableMetadata =
       readonly architecture: "riscv";
       readonly availableArchitectures: readonly "riscv"[];
       readonly riscv: RiscvElfMetadata;
+    }
+  | {
+      readonly format: "elf";
+      readonly architecture: "m68k";
+      readonly availableArchitectures: readonly "m68k"[];
+      readonly m68k: M68kElfMetadata;
     }
   | {
       readonly format: "mach-o" | "elf" | "dos-mz" | "dos-com";
@@ -199,7 +206,11 @@ const parseElf = (
   const machine = little ? bytes.readUInt16LE(18) : bytes.readUInt16BE(18);
   const architecture = elfArchitecture(machine);
   if (architecture === undefined) return err("unsupported ELF architecture");
-  if (architecture === "mips" || architecture === "riscv") {
+  if (
+    architecture === "mips" ||
+    architecture === "riscv" ||
+    architecture === "m68k"
+  ) {
     const flagsOffset = elfClass === 32 ? 36 : 48;
     const metadata: ElfFamilyMetadata = {
       elfClass,
@@ -209,19 +220,26 @@ const parseElf = (
         ? bytes.readUInt32LE(flagsOffset)
         : bytes.readUInt32BE(flagsOffset),
     };
-    return architecture === "mips"
-      ? ok({
-          format: "elf",
-          architecture,
-          availableArchitectures: [architecture],
-          mips: metadata,
-        })
-      : ok({
-          format: "elf",
-          architecture,
-          availableArchitectures: [architecture],
-          riscv: metadata,
-        });
+    if (architecture === "mips")
+      return ok({
+        format: "elf",
+        architecture,
+        availableArchitectures: [architecture],
+        mips: metadata,
+      });
+    if (architecture === "riscv")
+      return ok({
+        format: "elf",
+        architecture,
+        availableArchitectures: [architecture],
+        riscv: metadata,
+      });
+    return ok({
+      format: "elf",
+      architecture,
+      availableArchitectures: [architecture],
+      m68k: metadata,
+    });
   }
   return ok({
     format: "elf",
@@ -357,12 +375,14 @@ const elfArchitecture = (
   switch (machine) {
     case 3:
       return "x86";
-    case 62:
-      return "x86_64";
+    case 4: // EM_68K: the family is retained; the M68000 variant stays in e_flags.
+      return "m68k";
     case 8: // EM_MIPS: ISA, ABI and byte order remain separate ELF facts.
       return "mips";
     case 40:
       return "arm";
+    case 62:
+      return "x86_64";
     case 183:
       return "arm64";
     case 243: // EM_RISCV: XLEN, byte order and e_flags remain separate ELF facts.

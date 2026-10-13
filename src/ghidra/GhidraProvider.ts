@@ -44,6 +44,7 @@ import {
   ghidraProcessorUnsupportedReason,
   isGhidraPspTarget,
 } from "./GhidraPspProfile.js";
+import { ghidraM68kUnsupportedReason } from "./GhidraM68kProfile.js";
 import { resolveGhidraExtensions } from "./extensions/GhidraExtensions.js";
 import {
   CAPABILITIES,
@@ -68,6 +69,7 @@ const SUPPORTED_ARCHITECTURES = new Set([
   "mips",
   "6502",
   "riscv",
+  "m68k",
 ]);
 
 /** Ghidra candidate backed by an isolated ephemeral headless import. */
@@ -169,6 +171,14 @@ export class GhidraProvider implements AnalysisProviderCandidate {
         reason: mipsReason,
         diagnostics,
       };
+    const m68kReason = ghidraM68kUnsupportedReason(target);
+    if (m68kReason !== null)
+      return {
+        status: "unsupported",
+        code: "architecture_unsupported",
+        reason: m68kReason,
+        diagnostics,
+      };
     if (
       isMachOFormat(target.format) &&
       target.availableArchitectures.length > 1
@@ -185,7 +195,7 @@ export class GhidraProvider implements AnalysisProviderCandidate {
         status: "unsupported",
         code: "architecture_unsupported",
         reason:
-          "Ghidra v1 requires a supported x86, x86_64, arm, arm64, MIPS, RISC-V, or raw 6502 target profile.",
+          "Ghidra v1 requires a supported x86, x86_64, arm, arm64, MIPS, RISC-V, m68k, or raw 6502 target profile.",
         diagnostics,
       };
     return {
