@@ -41,6 +41,7 @@ import {
   traverseJavaScriptAstSteps,
 } from "./javascriptSemanticTraversal.js";
 import { semanticRequireOrigin } from "./javascriptSemanticRequireOrigin.js";
+import { semanticBundledRequireOrigin } from "./javascriptBundledRequireOrigin.js";
 import { collectSemanticMemberMutationsSteps } from "./javascriptSemanticMemberMutations.js";
 import { indexJavaScriptAmbientWritesSteps } from "./javascriptSemanticAmbientWrites.js";
 import { hasUncertainTypeOnlyModuleSideEffect } from "./javascriptModuleDeclaration.js";
@@ -522,7 +523,7 @@ export function* indexJavaScriptElectronIdentitySteps(
     const wrapped = interop.callOrigin(root);
     const origin =
       wrapped === undefined
-        ? semanticRequireOrigin(root, state)?.origin
+        ? electronRequireOrigin(root, state)?.origin
         : collectedWrites && interop.invalidatedCall(root)
           ? undefined
           : wrapped.origin;
@@ -606,6 +607,15 @@ const electronExport = (
     : null;
 };
 
+// Bundled main processes reach Electron through a Webpack external rather than
+// a direct `require("electron")`.
+const electronRequireOrigin = (
+  node: t.Node,
+  state: JavaScriptSemanticAnalysisState,
+) =>
+  semanticRequireOrigin(node, state) ??
+  semanticBundledRequireOrigin(node, state);
+
 const bindingOrigin = (
   binding: JavaScriptSemanticBindingState,
   state: JavaScriptSemanticAnalysisState,
@@ -616,7 +626,7 @@ const bindingOrigin = (
       : undefined;
   const initializer = semanticStableInitializer(binding, state);
   if (initializer === undefined) return undefined;
-  const origin = semanticRequireOrigin(initializer.node, state)?.origin;
+  const origin = electronRequireOrigin(initializer.node, state)?.origin;
   const projection = initializer.projection;
   return origin === undefined ||
     !projection.every((key): key is string => typeof key === "string")

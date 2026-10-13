@@ -12,16 +12,17 @@ import {
 } from "./javascriptAstValues.js";
 import { stringValue } from "./javascriptStaticAnalysisHelpers.js";
 
-interface JavaScriptRequireOrigin {
+export interface JavaScriptRequireOrigin {
   readonly origin: JavaScriptModuleOrigin;
   readonly call: t.CallExpression;
 }
 
-/** Recover an unshadowed literal require origin and its exact member path. */
-export const semanticRequireOrigin = (
+/** Strip a static member chain, returning its innermost expression and path. */
+export const semanticMemberChain = (
   node: t.Node | null | undefined,
-  state: JavaScriptSemanticAnalysisState,
-): JavaScriptRequireOrigin | undefined => {
+):
+  | { readonly root: t.Node | null | undefined; readonly members: string[] }
+  | undefined => {
   const members: string[] = [];
   let current = node;
   while (current !== null && current !== undefined) {
@@ -39,7 +40,18 @@ export const semanticRequireOrigin = (
     members.push(member);
     current = current.object;
   }
+  return { root: current, members: members.reverse() };
+};
+
+/** Recover an unshadowed literal require origin and its exact member path. */
+export const semanticRequireOrigin = (
+  node: t.Node | null | undefined,
+  state: JavaScriptSemanticAnalysisState,
+): JavaScriptRequireOrigin | undefined => {
+  const chain = semanticMemberChain(node);
+  const current = chain?.root;
   if (
+    chain === undefined ||
     !t.isCallExpression(current) ||
     !t.isIdentifier(current.callee, { name: "require" })
   )
@@ -56,7 +68,7 @@ export const semanticRequireOrigin = (
     : {
         origin: {
           specifier,
-          importedPath: members.reverse(),
+          importedPath: chain.members,
           resolutionMode: "require",
         },
         call: current,
