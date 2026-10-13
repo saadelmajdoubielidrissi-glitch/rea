@@ -115,22 +115,26 @@ const estimateXmlPlistExpansion = (
   xmlText?: string,
 ): number => {
   const xml = xmlText ?? decodeXmlPlistText(bytes);
-  if (/<!DOCTYPE\b[^>]*\[/iu.test(xml))
-    throw new InterfaceBuilderDecodeBudgetExceeded(
-      "aggregate_decode_budget_exhausted",
-      "XML plist internal entity expansion exceeds the aggregate Interface Builder decode budget",
-    );
   const elementPattern =
-    /<!--[^]*?-->|<!\[CDATA\[[^]*?\]\]>|<!DOCTYPE[^>]*>|<\?[^]*?\?>|<\/?[A-Za-z][^>]*>/giu;
+    /<!--[^]*?-->|<!\[CDATA\[[^]*?\]\]>|<!DOCTYPE(?:[^>"']|"[^"]*"|'[^']*')*>|<\?[^]*?\?>|<\/?[A-Za-z][^>]*>/giu;
   const decodedSourceBytes = xml.length * 2;
   let elementCount = 0;
   let xmlDepth = 0;
   for (const match of xml.matchAll(elementPattern)) {
     const token = match[0] ?? "";
+    if (/^<!DOCTYPE\b/iu.test(token)) {
+      // Only a declaration outside opaque text can introduce an internal
+      // subset. Brackets in quoted external identifiers are literal text.
+      if (token.replace(/"[^"]*"|'[^']*'/gu, "").includes("["))
+        throw new InterfaceBuilderDecodeBudgetExceeded(
+          "aggregate_decode_budget_exhausted",
+          "XML plist internal entity expansion exceeds the aggregate Interface Builder decode budget",
+        );
+      continue;
+    }
     if (
       token.startsWith("<!--") ||
       token.startsWith("<![CDATA[") ||
-      token.startsWith("<!DOCTYPE") ||
       token.startsWith("<?")
     )
       continue;
