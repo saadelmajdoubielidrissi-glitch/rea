@@ -460,7 +460,10 @@ const workflowAvailabilityFor = ({
           reason:
             policy.androidAnalysisAvailability?.code === "unsupported_host"
               ? "unsupported_host"
-              : "provider_missing",
+              : policy.androidAnalysisAvailability?.code ===
+                  "runtime_unavailable"
+                ? "provider_unavailable"
+                : "provider_missing",
           remediation:
             policy.androidAnalysisAvailability?.reason ??
             "Set REA_JADX_MCP_JAR to a caller-supplied jadx-headless-mcp 0.7.1 JAR and provide a full JDK on Linux, macOS, or Windows x64 with its matching bundled native controls.",

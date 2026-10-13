@@ -98,6 +98,21 @@ const entry = (
 };
 
 describe("capability failure reasons", () => {
+  it("keeps an unavailable Android runtime distinct from a missing provider", () => {
+    const inventory = buildCapabilityInventory(status(), {
+      ...enabledPolicy,
+      androidAnalysisAvailability: {
+        status: "unavailable",
+        code: "runtime_unavailable",
+        reason: "The JADX native self-test failed.",
+        diagnostics: {},
+      },
+    });
+    expect(
+      inventory.find(({ name }) => name === "inspect_android_package"),
+    ).toMatchObject({ available: false, reason: "provider_unavailable" });
+  });
+
   it("admits physical universal Mach-O targets for native Mach-O operations", () => {
     expect(
       entry(

@@ -1,6 +1,7 @@
 import { constants } from "node:fs";
 import { access, realpath, stat } from "node:fs/promises";
 import { delimiter, isAbsolute, join, resolve } from "node:path";
+import { inspectWindowsNativeReadiness } from "../process/WindowsAuthority.js";
 import { systemWindowsNativeAuthority } from "../windows/WindowsNativeLoader.js";
 import { AnalysisCapabilityUnavailableError } from "../domain/analysisErrorCore.js";
 import type { AndroidOperation } from "../domain/android/androidAnalysis.js";
@@ -30,6 +31,7 @@ type ConfigurationFailureCode =
   | "not_configured"
   | "executable_missing"
   | "runtime_missing"
+  | "runtime_unavailable"
   | "unsupported_host"
   | "unsupported_version"
   | "version_unresolved"
@@ -207,20 +209,39 @@ const requireSupportedHost = (): void => {
   if (process.platform === "linux" || process.platform === "darwin") return;
   if (process.platform === "win32" && process.arch === "x64") {
     const loaded = systemWindowsNativeAuthority();
-    if (loaded.available && loaded.authority.inspection.protocolStdin === true)
-      return;
-    throw configurationFailure(
-      "runtime_missing",
-      loaded.available
-        ? "The bundled Windows native artifact lacks owned protocol stdin; use a matching current Windows x64 REA package."
-        : loaded.reason,
-      {
-        platform: process.platform,
-        architecture: process.arch,
-        phase: "process-ownership",
-        owned_protocol_stdin: false,
-      },
-    );
+    if (loaded.available) {
+      if (loaded.authority.inspection.protocolStdin === true) return;
+      throw configurationFailure(
+        "runtime_missing",
+        "The bundled Windows native artifact lacks owned protocol stdin; use a matching current Windows x64 REA package.",
+        {
+          platform: process.platform,
+          architecture: process.arch,
+          phase: "process-ownership",
+          owned_protocol_stdin: false,
+        },
+      );
+    }
+    const readiness = inspectWindowsNativeReadiness(process.platform, loaded);
+    if (readiness.available)
+      throw configurationFailure(
+        "runtime_unavailable",
+        "Windows native readiness disagreed with the native loader result.",
+        {
+          platform: process.platform,
+          architecture: process.arch,
+          phase: "process-ownership",
+          owned_protocol_stdin: false,
+        },
+      );
+    throw configurationFailure(readiness.code, readiness.reason, {
+      platform: process.platform,
+      architecture: process.arch,
+      phase: "process-ownership",
+      owned_protocol_stdin: false,
+      failure_stage: readiness.failureStage,
+      remediation: readiness.remediation,
+    });
   }
   throw configurationFailure(
     "unsupported_host",
