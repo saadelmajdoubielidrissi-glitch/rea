@@ -11,6 +11,7 @@ import {
   values,
 } from "./processTraceComparison.fixture.js";
 
+import { compareProcessCaptures } from "./processComparison.js";
 import { compareProcessTraces } from "./processTraceComparison.js";
 describe("generic capture trace comparison", () => {
   it("requires explicit partial ordering and never infers causality from timestamps", () => {
@@ -283,5 +284,51 @@ describe("unknown process trace evidence", () => {
         event_journal: complete.event_journal.slice(1),
       }),
     ).toThrow("event_journal");
+  });
+});
+
+describe("process trace dimension attribution", () => {
+  const traced = (
+    left: ReturnType<typeof capture>,
+    right: ReturnType<typeof capture>,
+  ) =>
+    compareProcessCaptures(left, right, {
+      traceSpecification: partialSpecification(),
+    });
+  const make = (data: string, command: string) =>
+    capture({
+      ...values(["terminal", "process"]),
+      frames: [{ ...terminal, data }],
+      process_samples: [{ ...processStarted, command }],
+    });
+
+  it("keeps equal dimensions unchanged when one side fails a predicate", () => {
+    expect(
+      traced(make("Ready", "worker"), make("Different", "worker")),
+    ).toMatchObject({
+      trace: { verdict: "different" },
+      terminal: "changed",
+      process: "unchanged",
+    });
+    expect(
+      traced(make("Ready", "worker"), make("Ready", "other-worker")),
+    ).toMatchObject({
+      trace: { verdict: "different" },
+      terminal: "unchanged",
+      process: "changed",
+    });
+  });
+
+  it("still attributes an ordering difference to both ordered dimensions", () => {
+    expect(
+      traced(
+        capture(values(["terminal", "process"])),
+        capture(values(["process", "terminal"])),
+      ),
+    ).toMatchObject({
+      trace: { verdict: "different" },
+      terminal: "changed",
+      process: "changed",
+    });
   });
 });
