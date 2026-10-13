@@ -8,8 +8,12 @@ import type {
   JavaScriptSemanticChildProcessSpawn,
 } from "./javascriptSemanticIr.js";
 import { semanticCallableIdForNode } from "./javascriptSemanticProjection.js";
-import { semanticStaticPropertyName } from "./javascriptAstValues.js";
 import {
+  semanticStaticPropertyName,
+  unwrapJavaScriptExpression,
+} from "./javascriptAstValues.js";
+import {
+  isUnshadowedGlobal,
   resolveSemanticBindingState,
   semanticResolutionBlocked,
   type JavaScriptSemanticAnalysisState,
@@ -245,10 +249,12 @@ const killSignalName = (
   const [signal] = args;
   if (
     signal === undefined ||
-    (t.isIdentifier(signal) &&
-      signal.name === "undefined" &&
-      resolveSemanticBindingState(state, signal, signal.name) === undefined &&
-      !semanticResolutionBlocked(state, signal, signal.name))
+    (signal !== undefined &&
+      isUnshadowedGlobal(
+        unwrapJavaScriptExpression(signal).node,
+        state,
+        "undefined",
+      ))
   )
     return "SIGTERM";
   return dataEffectLiteralString(signal);
