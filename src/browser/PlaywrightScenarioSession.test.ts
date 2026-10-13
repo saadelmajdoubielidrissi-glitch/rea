@@ -85,6 +85,10 @@ const fixture = () => {
     evaluate: vi.fn(async (_script: unknown) => false),
     addInitScript: vi.fn(async (_script: unknown) => undefined),
     context: () => context,
+    frames: () => [page],
+    isDetached: () => false,
+    isClosed: () => false,
+    waitForLoadState: vi.fn(async () => undefined),
   });
   const context = Object.assign(new EventEmitter(), {
     setDefaultTimeout: vi.fn(),
@@ -176,7 +180,7 @@ it("blocks new attached service-worker registration without removing existing re
   });
   const session = await PlaywrightScenarioSession.open(attached, {}, {});
 
-  expect(page.evaluate).toHaveBeenCalledTimes(2);
+  expect(page.evaluate).toHaveBeenCalledTimes(3);
   expect(page.addInitScript).toHaveBeenCalledTimes(1);
   expect(page.addInitScript).toHaveBeenCalledWith(
     expect.stringContaining("service workers are blocked by scenario policy"),
@@ -188,6 +192,74 @@ it("blocks new attached service-worker registration without removing existing re
     expect.not.stringContaining("unregister"),
   );
   await expect(session.close()).resolves.toBe("disconnected-external");
+  expect(cleanup.close).toHaveBeenCalledTimes(1);
+});
+
+it("retains the attached connection when registration restoration fails", async () => {
+  const { cleanup, page } = fixture();
+  const attached = browserScenarioSchema.parse({
+    ...scenario,
+    browser: {
+      mode: "connect",
+      cdp_endpoint: "http://127.0.0.1:9222",
+      target_id: "target",
+    },
+    environment: { service_workers: "block" },
+  });
+  const session = await PlaywrightScenarioSession.open(attached, {}, {});
+  const failure = new Error("registration restoration failed");
+  page.evaluate.mockRejectedValueOnce(failure);
+  await expect(session.close()).rejects.toBe(failure);
+  expect(cleanup.close).not.toHaveBeenCalled();
+  await expect(session.close()).resolves.toBe("disconnected-external");
+  expect(cleanup.close).toHaveBeenCalledTimes(1);
+  await expect(session.close()).resolves.toBe("disconnected-external");
+});
+
+it("waits for a pending registration installation before cancelled cleanup", async () => {
+  const { cleanup, page } = fixture();
+  let releaseInstallation: () => void = () => undefined;
+  let installationStarted: () => void = () => undefined;
+  const installed = new Promise<void>((resolve) => {
+    releaseInstallation = resolve;
+  });
+  const started = new Promise<void>((resolve) => {
+    installationStarted = resolve;
+  });
+  page.addInitScript.mockImplementationOnce(async () => {
+    installationStarted();
+    await installed;
+  });
+  const cancellation = new AbortController();
+  const opening = PlaywrightScenarioSession.open(
+    browserScenarioSchema.parse({
+      ...scenario,
+      browser: {
+        mode: "connect",
+        cdp_endpoint: "http://127.0.0.1:9222",
+        target_id: "target",
+      },
+      environment: { service_workers: "block" },
+    }),
+    {},
+    { signal: cancellation.signal },
+  );
+  const outcome = expect(opening).rejects.toMatchObject({
+    _tag: "AnalysisCancelledError",
+  });
+  await started;
+  cancellation.abort();
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  expect(cleanup.close).not.toHaveBeenCalled();
+  expect(page.evaluate).toHaveBeenCalledTimes(1);
+  releaseInstallation();
+  await outcome;
+  expect(page.evaluate.mock.calls[1]?.[0]).toContain(
+    "service workers are blocked",
+  );
+  expect(page.evaluate.mock.calls[2]?.[0]).toContain(
+    'Object.defineProperty(prototype, "register", descriptor)',
+  );
   expect(cleanup.close).toHaveBeenCalledTimes(1);
 });
 
