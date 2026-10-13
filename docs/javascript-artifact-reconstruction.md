@@ -253,12 +253,16 @@ the basis location is the first matching site, not an inventory of occurrences
 or a runtime call count. The bundle result retains source digests, not complete
 script text. Inspect captured script sources separately when all sites are
 needed, and match their artifact digest before treating them as the same source.
-Explicit URL/path literals, query-only references such as `?page=2`, and
-`fetch("login")` retain their syntax findings. Query references are classified
-after the existing collection/configuration exclusions; their lookup keys do
-not become endpoints merely because they start with `?`. Original query text,
-parameter ordering and fragments are preserved. These findings do not establish
-a network request at runtime. Dynamic receivers,
+Recognized explicit forms include HTTP(S)/WebSocket URLs, network/root paths,
+`./` and `../` paths, query-only references such as `?page=2`, and fragment-only
+references such as `#section` (including empty `?` and `#`). They are classified
+after the existing collection/configuration exclusions; excluded lookup keys do
+not become endpoints merely because they start with `?` or `#`. Original text,
+parameter ordering and fragments are preserved without choosing a base URL,
+decoding or trimming. This is explicit-shape recognition, not full URI validation.
+Overloaded HTTP-method names with bare, encoded-prefix or leading-whitespace
+arguments keep their existing candidate classification; `fetch("login")` retains
+its syntax finding. These findings do not establish network execution. Dynamic receivers,
 computed URLs and request overloads still need independent evidence.
 
 RPC client syntax also contributes network endpoint candidates, in both

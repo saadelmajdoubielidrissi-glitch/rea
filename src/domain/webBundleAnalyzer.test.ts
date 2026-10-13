@@ -374,27 +374,60 @@ describe("web bundle API classification parity", () => {
   });
 });
 
-describe("web bundle query-only endpoint references", () => {
-  it("recognizes explicit query references after excluding lookup receivers", () => {
-    const query = "?page=2&tag=a&tag=b#section";
+describe("web bundle explicit request reference forms", () => {
+  it("recognizes URL, path, query and fragment forms after excluding lookup receivers", () => {
+    const references = [
+      "http://api.example.test/users",
+      "https://api.example.test/users?q=1#part",
+      "ws://api.example.test/events",
+      "wss://api.example.test/events",
+      "//api.example.test/users",
+      "/api/users",
+      "./users",
+      "../users",
+      "?",
+      "?page=2&tag=a&tag=b#section",
+      "#",
+      "#section",
+      "#frag?tag=a&tag=b",
+    ];
+    const ambiguous = [
+      "",
+      ".",
+      "..",
+      "users",
+      "%23section",
+      "%3Fpage=2",
+      " #section",
+    ];
     const source = `
-      api.get(${JSON.stringify(query)});
-      api.request("?");
+      ${references.map((value) => `api.get(${JSON.stringify(value)});`).join("\n")}
+      ${ambiguous.map((value) => `api.get(${JSON.stringify(value)});`).join("\n")}
       xhr.open(method, "?view=1");
-      xhr.open("GET", "?literal=1");
-      api.get("users");
+      xhr.open(method, "#view=1");
+      xhr.open("GET", "#literal=1");
       request("POST", target);
       snackBar.open(message, "X");
       new Map().get("?map-key");
+      new Map().get("#map-key");
       new Headers().delete("?header-key");
+      new Headers().delete("#header-key");
       new URLSearchParams().get("?parameter-key");
+      new URLSearchParams().get("#parameter-key");
       response.headers.get("?response-key");
+      response.headers.get("#response-key");
       const config = vscode.workspace.getConfiguration("git");
       config.get("?setting");
+      config.get("#setting");
       window.open(url, "?window-target");
+      window.open(url, "#window-target");
       indexedDB.open(name, "?database-version");
+      indexedDB.open(name, "#database-version");
+      caches.open(name, "#cache-name");
+      fs.open(path, "r");
     `;
-    const expected = ["?", "?literal=1", query, "?view=1"];
+    const expected = [...references, "?view=1", "#view=1", "#literal=1"].sort();
+    const expectedCandidates = [...ambiguous, "POST", "X"].sort();
     const web = analyzeCapturedWebBundle(inspection(source));
     expect(web.observations.endpoints.map(({ value }) => value).sort()).toEqual(
       expected,
@@ -404,7 +437,7 @@ describe("web bundle query-only endpoint references", () => {
         .filter(({ kind }) => kind === "endpoint_candidate")
         .map(({ value }) => value)
         .sort(),
-    ).toEqual(["POST", "X", "users"]);
+    ).toEqual(expectedCandidates);
     const analyzed = analyzeJavaScriptStaticSource(source);
     expect(
       analyzed.endpoints
@@ -417,7 +450,7 @@ describe("web bundle query-only endpoint references", () => {
         .filter(({ interpretation }) => interpretation === "candidate")
         .map(({ value }) => value)
         .sort(),
-    ).toEqual(["POST", "X", "users"]);
+    ).toEqual(expectedCandidates);
   });
 });
 

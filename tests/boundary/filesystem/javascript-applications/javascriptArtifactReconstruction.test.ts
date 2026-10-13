@@ -87,7 +87,9 @@ it("preserves graph commitments, endpoint certainty and export shapes when consu
     client.get("login");
     client.get("/api/profile");
     client.get("?page=2&tag=a&tag=b#section");
+    client.get("#section");
     new Map().get("?lookup");
+    new Map().get("#lookup");
   `,
   );
   const snapshot = await scanCanonicalArtifactInventory(root, {});
@@ -210,7 +212,8 @@ const assertEndpointInterpretations = (
     .flatMap(({ observations }) => observations);
   expect(
     endpointObservations.some(
-      ({ properties }) => properties.value === "?lookup",
+      ({ properties }) =>
+        properties.value === "?lookup" || properties.value === "#lookup",
     ),
   ).toBe(false);
   const candidates = endpointObservations.filter(
@@ -247,6 +250,7 @@ const assertEndpointInterpretations = (
         state: "observed",
         confidence: "exact",
       },
+      { value: "#section", state: "observed", confidence: "exact" },
     ]),
   );
   const candidateEdges = graph.edges.filter(

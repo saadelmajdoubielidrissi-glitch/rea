@@ -418,7 +418,9 @@ const isRequestUrlOrPathLiteral = (value: string): boolean =>
 
 /** Explicit request references, classified after receiver-specific exclusions. */
 const isRequestUrlReference = (value: string): boolean =>
-  isRequestUrlOrPathLiteral(value) || value.startsWith("?");
+  isRequestUrlOrPathLiteral(value) ||
+  value.startsWith("?") ||
+  value.startsWith("#");
 
 /**
  * Browsing-context and document `open` take a URL or type first and a target
