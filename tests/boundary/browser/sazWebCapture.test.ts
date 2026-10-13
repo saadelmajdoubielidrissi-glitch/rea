@@ -120,7 +120,7 @@ it("derives portable and retained SAZ API surfaces after removing the archive", 
     [
       "raw/1_s.txt",
       Buffer.from(
-        "HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\n\r\n{}",
+        "HTTP/1.1 200 OK\r\nContent-Type:\r\n\tapplication/json; charset=utf-8\r\n\r\n{}",
       ),
     ],
     [
@@ -130,7 +130,7 @@ it("derives portable and retained SAZ API surfaces after removing the archive", 
     [
       "raw/2_s.txt",
       Buffer.from(
-        "HTTP/1.1 404 Not Found\r\ncontent-type: text/plain\r\n\r\nmissing",
+        "HTTP/1.1 404 Not Found\ncontent-type:\n text/plain\n\nmissing",
       ),
     ],
     [
@@ -144,6 +144,31 @@ it("derives portable and retained SAZ API surfaces after removing the archive", 
   ]);
   const path = await fixture(bytes);
   const parent = await cli(path);
+  expect(parent.normalized_result).toMatchObject({
+    records: [
+      {
+        reported: {
+          response: {
+            headers: [
+              {
+                name: "Content-Type",
+                value: "\r\n\tapplication/json; charset=utf-8",
+              },
+            ],
+          },
+        },
+      },
+      {
+        reported: {
+          response: {
+            headers: [{ name: "content-type", value: "\n text/plain" }],
+          },
+        },
+      },
+      {},
+      {},
+    ],
+  });
   const { call } = await connectLocalToolsMcp();
   const summary = parseEvidence(
     (

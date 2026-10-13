@@ -83,6 +83,30 @@ it("groups SAZ request lines with textual statuses and ordered response headers"
 });
 
 it.each([
+  "\r\n application/json",
+  "\n\tapplication/json",
+  "\r\n \t\r\n\tApplication/JSON\r\n ; charset=utf-8",
+  " application/json\n\t ",
+])(
+  "unfolds accepted SAZ header continuations without changing source: %j",
+  (value) => {
+    const reported = {
+      request,
+      response: { status: "200", headers: [{ name: "Content-Type", value }] },
+    };
+    const before = structuredClone(reported);
+    expect(project([reported])).toMatchObject({
+      ok: true,
+      value: {
+        groups: [{ statuses: [200], content_types: ["application/json"] }],
+        unknowns: [],
+      },
+    });
+    expect(reported).toEqual(before);
+  },
+);
+
+it.each([
   null,
   { status: "200", headers: null },
   { status: "200", headers: [{ name: "Content-Type", value: null }] },
@@ -108,6 +132,16 @@ it.each([
     status: "200",
     headers: [{ name: "Content-Type", value: "\u00a0text/plain" }],
   },
+  ...[
+    "\r application/json",
+    "\napplication/json",
+    "\r\napplication/json",
+    "\n\u00a0application/json",
+    "application/\r\n json",
+  ].map((value) => ({
+    status: "200",
+    headers: [{ name: "Content-Type", value }],
+  })),
 ])(
   "preserves unknown or ambiguous SAZ response content types: %j",
   (response) => {

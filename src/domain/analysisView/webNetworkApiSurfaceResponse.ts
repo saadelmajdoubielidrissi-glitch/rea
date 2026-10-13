@@ -10,6 +10,31 @@ const responseSchema = z.object({
 });
 const contentSchema = z.object({ mimeType: z.unknown().optional() });
 const headerSchema = z.object({ name: z.string(), value: z.unknown() });
+const MEDIA_TYPE_ESSENCE =
+  /^[A-Za-z0-9!#$%&'*+.^_`|~-]+\/[A-Za-z0-9!#$%&'*+.^_`|~-]+$/u;
+
+/** Derive a MIME only after the caller admits the original header's text cost. */
+export const apiSurfaceMediaType = (
+  reported: string,
+  format: "har" | "saz",
+): string | null => {
+  // SAZ retains accepted HTTP continuations verbatim. Unfold only that syntax;
+  // the source Evidence and HAR's already decoded mimeType remain unchanged.
+  const field =
+    format === "saz" ? reported.replace(/\r?\n[ \t]+/gu, " ") : reported;
+  const separator = field.indexOf(";");
+  let start = 0;
+  let end = separator < 0 ? field.length : separator;
+  // HTTP OWS is SP/HTAB. Scan from both ends so malformed internal runs of
+  // whitespace cannot cause repeated trailing-regex searches.
+  while (start < end && (field[start] === " " || field[start] === "\t"))
+    start += 1;
+  while (end > start && (field[end - 1] === " " || field[end - 1] === "\t"))
+    end -= 1;
+  const essence = field.slice(start, end);
+  // Validate ASCII tokens before case folding can turn Unicode into ASCII.
+  return MEDIA_TYPE_ESSENCE.test(essence) ? essence.toLowerCase() : null;
+};
 
 /** A duplicate or unreadable header cannot establish a single Content-Type. */
 const sazContentType = (headers: unknown): string | undefined => {

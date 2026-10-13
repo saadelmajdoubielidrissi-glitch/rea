@@ -176,19 +176,25 @@ it("bounds excluded-record storage and distinct limitations as well as endpoint 
   expect(accumulator.page(0, 1).excluded_records).toHaveLength(accepted);
 });
 
-it("admits SAZ header text before MIME interpretation or publishing a group", () => {
-  const accumulator = new WebNetworkApiSurfaceAccumulator(64 * 1024);
-  const sample = record(0, "/items");
-  sample.reported = {
-    request: { method: "GET", url: "https://api.test/items" },
-    response: {
-      status: "200",
-      headers: [{ name: "Content-Type", value: `text/${"a".repeat(30_000)}` }],
-    },
-  };
-  expect(accumulator.add(sample, "saz")).toMatchObject({
-    ok: false,
-    error: { _tag: "AnalysisResourceConstraintError" },
-  });
-  expect(accumulator.page(0, 1).groups).toEqual([]);
-});
+it.each([
+  `text/${"a".repeat(30_000)}`,
+  `\r\n${" ".repeat(30_000)}application/json`,
+])(
+  "admits SAZ header text before MIME interpretation or publishing a group",
+  (value) => {
+    const accumulator = new WebNetworkApiSurfaceAccumulator(64 * 1024);
+    const sample = record(0, "/items");
+    sample.reported = {
+      request: { method: "GET", url: "https://api.test/items" },
+      response: {
+        status: "200",
+        headers: [{ name: "Content-Type", value }],
+      },
+    };
+    expect(accumulator.add(sample, "saz")).toMatchObject({
+      ok: false,
+      error: { _tag: "AnalysisResourceConstraintError" },
+    });
+    expect(accumulator.page(0, 1).groups).toEqual([]);
+  },
+);

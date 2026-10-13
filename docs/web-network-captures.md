@@ -255,7 +255,10 @@ response fields, including HAR's `status: 0` and an empty `mimeType`, remain
 unknown, not invented statuses or MIME types.
 
 SAZ uses the already parsed request line, the three-digit textual response
-status and a single case-insensitive `Content-Type` response header. Missing,
+status and a single case-insensitive `Content-Type` response header. Accepted
+header continuations (CRLF or LF followed by SP/HTAB) are unfolded for MIME
+interpretation after admitting the original text's resource cost; the parent
+Evidence retains the original header value. Missing,
 malformed or duplicate Content-Type declarations remain unknown, including
 identical duplicates. Bodies and Session XML are not interpreted. Only a
 recorded absolute request URL establishes the origin: origin-form paths,

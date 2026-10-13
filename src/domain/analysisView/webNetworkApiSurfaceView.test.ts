@@ -402,6 +402,8 @@ it("treats malformed media types as unknown and keeps source limitations", () =>
     "\u000btext/plain\u000b",
     "\u000ctext/plain\u000c",
     "text/K",
+    "\r\n text/plain",
+    "\n\ttext/plain",
   ];
   capture.records = malformed.map((_, ordinal) => ({
     ...capture.records[0]!,
