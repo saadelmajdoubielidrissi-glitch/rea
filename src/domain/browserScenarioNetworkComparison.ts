@@ -95,7 +95,12 @@ export const scenarioNetworkTransactions = (
         const parent = event.redirected_from_transaction_id;
         const state = event.redirected_from_transaction_state;
         const knownParent = previous.predecessor;
-        if (parent !== null && knownParent !== null && parent !== knownParent)
+        if (
+          parent !== null &&
+          (knownParent !== null
+            ? parent !== knownParent
+            : previous.predecessorState === "root")
+        )
           previous.predecessorConflict = true;
         else if (parent !== null && knownParent === null) {
           previous.predecessor = parent;
