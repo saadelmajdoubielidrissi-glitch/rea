@@ -2,10 +2,13 @@ import type { ElectronNativeAddonBindingFinding } from "../../domain/javascript/
 import type { JavaScriptArtifactFile } from "../../domain/javascript/javascriptArtifactFiles.js";
 import {
   javascriptAnalysisCoverage,
-  resolveArtifactPath,
   type JavaScriptArtifactGraphContext,
   type JavaScriptArtifactGraphCoverage,
 } from "./JavaScriptArtifactGraphContext.js";
+import {
+  artifactPathResolutionProperties,
+  resolveArtifactPathByContext,
+} from "./JavaScriptArtifactPathResolution.js";
 import { astObservationEvidence } from "./JavaScriptArtifactGraphEvidence.js";
 import { compositeKey } from "../../domain/unicodeCodePointOrder.js";
 import { javascriptDisplayText } from "../../domain/javascript/javascriptAstValues.js";
@@ -45,12 +48,16 @@ const addNativeBinding = (input: NativeBindingInput): void => {
     value.module_runtime,
   );
   if (source === undefined) return;
-  const resolved = resolveArtifactPath(
-    value.specifier,
-    file.path,
-    context.filesByPath,
-    value.module_kind,
-  );
+  const resolution = resolveArtifactPathByContext({
+    declaredPath: value.specifier,
+    sourcePath: file.path,
+    context: "module-specifier",
+    files: context.pathFacts,
+    ...(value.module_kind === undefined
+      ? {}
+      : { moduleKind: value.module_kind }),
+  });
+  const resolved = resolution.resolved_path;
   const addon = resolved === null ? undefined : context.fileNodes.get(resolved);
   const binding = context.accumulator.addNode({
     kind: "native-export",
@@ -79,6 +86,10 @@ const addNativeBinding = (input: NativeBindingInput): void => {
           namespace_access: value.namespace_access ?? null,
           dynamic_member_access: value.dynamic_member_access ?? null,
           resolved_path: resolved,
+          ...(resolution.resolution_status === "resolved"
+            ? {}
+            : { resolution_status: resolution.resolution_status }),
+          ...artifactPathResolutionProperties(resolution),
           native_export_verification: "not-performed",
         },
         evidence: astObservationEvidence({

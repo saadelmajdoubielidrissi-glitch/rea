@@ -110,6 +110,10 @@ const addReference = (
             declared_specifier: input.value.specifier,
             expression: input.value.expression,
             resolved_path: resolved?.path ?? null,
+            ...(resolved?.resolutionStatus === undefined
+              ? {}
+              : { resolution_status: resolved.resolutionStatus }),
+            ...artifactPathResolutionProperties(resolved?.resolution),
           },
           evidence: staticInferenceEvidence({
             sha256: input.file.sha256,
@@ -139,6 +143,23 @@ const addReference = (
         coverage: input.coverage,
         relation: "maps_to",
         properties: { resolved_path: resolved.path },
+        limitations: resolved.limitations,
+      });
+    else if (resolved !== null)
+      addStaticInferenceEdge(context, {
+        source: worker,
+        target: resolved.node,
+        file: input.file,
+        range: input.value.location,
+        coverage: input.coverage,
+        relation: "maps_to",
+        properties: {
+          resolved_path: null,
+          ...(resolved.resolutionStatus === undefined
+            ? {}
+            : { resolution_status: resolved.resolutionStatus }),
+          ...artifactPathResolutionProperties(resolved.resolution),
+        },
         limitations: resolved.limitations,
       });
     return;
@@ -282,7 +303,7 @@ const addDiscoveredRole = (
     declaredPath: input.value.path,
     sourcePath: input.file.path,
     context: input.value.resolution_context,
-    files: context.filesByPath,
+    files: context.pathFacts,
   });
   const role = createElectronRoleNode(context, {
     kind:
@@ -325,12 +346,13 @@ const addSourceMapEdge = (
   const declaredUrlSha256 = createHash("sha256")
     .update(input.value.declared_url)
     .digest("hex");
-  const resolvedPath = resolveArtifactPathByContext({
+  const resolution = resolveArtifactPathByContext({
     declaredPath: input.value.declared_url,
     sourcePath: input.file.path,
     context: "url-reference",
-    files: context.filesByPath,
-  }).resolved_path;
+    files: context.pathFacts,
+  });
+  const resolvedPath = resolution.resolved_path;
   const resolvedFile =
     resolvedPath === null ? undefined : context.filesByPath.get(resolvedPath);
   const resolvedNode =
@@ -355,6 +377,10 @@ const addSourceMapEdge = (
           declared_url_sha256: declaredUrlSha256,
           resolved_path: resolvedPath,
           available: isAvailable,
+          ...(resolution.resolution_status === "resolved"
+            ? {}
+            : { resolution_status: resolution.resolution_status }),
+          ...artifactPathResolutionProperties(resolution),
         },
         evidence: staticInferenceEvidence({
           sha256: input.file.sha256,
@@ -365,9 +391,11 @@ const addSourceMapEdge = (
           confidence: "medium",
           limitations: isAvailable
             ? []
-            : [
-                "The declared source map was not present in the inventoried artifact.",
-              ],
+            : resolution.resolution_status === "unavailable"
+              ? [...resolution.limitations]
+              : [
+                  "The declared source map was not present in the inventoried artifact.",
+                ],
         }),
       },
     ],
@@ -423,13 +451,13 @@ const resolveReference = (
         declaredPath: specifier,
         sourcePath,
         context: "url-reference",
-        files: context.filesByPath,
+        files: context.pathFacts,
       })
     : resolveArtifactPathByContext({
         declaredPath: specifier,
         sourcePath,
         context: "module-specifier",
-        files: context.filesByPath,
+        files: context.pathFacts,
         ...("require" === reference.kind ||
         "static-import" === reference.kind ||
         "dynamic-import" === reference.kind
@@ -443,7 +471,6 @@ const resolveReference = (
       });
   const path = resolution.resolved_path;
   if (path === null) {
-    if (isWorker) return null;
     const source = context.filesByPath.get(sourcePath);
     return source === undefined
       ? null
