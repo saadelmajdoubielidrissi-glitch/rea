@@ -1,11 +1,19 @@
 import { describe, expect, it } from "vitest";
 
 import { parseDemangledSymbols } from "./demangle.js";
+import { swiftSymbolsSchema } from "../../contracts/native/nativeToolContracts.js";
 
 describe("parseDemangledSymbols", () => {
   it("returns an empty array when given an empty input list", () => {
+    expect(swiftSymbolsSchema.safeParse([]).success).toBe(true);
     expect(parseDemangledSymbols([], "")).toEqual([]);
     expect(parseDemangledSymbols([], "\n")).toEqual([]);
+  });
+
+  it("rejects demangler output when the input batch is empty", () => {
+    expect(() => parseDemangledSymbols([], "unexpected\n")).toThrow(
+      "swift-demangle emitted output for an empty input",
+    );
   });
 
   it("parses demangled symbols successfully", () => {
