@@ -33,6 +33,7 @@ import type {
 } from "./javascriptStaticAnalysisState.js";
 import {
   resolveSemanticBindingState,
+  semanticStableInitializer,
   type JavaScriptSemanticAnalysisState,
 } from "./javascriptSemanticState.js";
 import {
@@ -57,7 +58,12 @@ export const inspectCall = (
   const first = stringValue(node.arguments[0]);
   const module = context.accumulator.moduleRangeIndex.find(node.start);
   const moduleRequireName = module?.requireName ?? null;
-  const requireCall = requireCallSpecifier(node, name, moduleRequireName);
+  const requireCall = requireCallSpecifier(
+    node,
+    name,
+    moduleRequireName,
+    isRequireLoaderReference(node.callee, bindings, name),
+  );
   if (requireCall !== null)
     addReference(context, {
       node,
@@ -210,12 +216,98 @@ const noteMediaElementPreloads = (
       accumulator.mediaElementPreloads.add(property);
 };
 
+/**
+ * A `require` name is the loader unless a lexical binding replaces it. A binding
+ * proven to come from `createRequire(...)` is that loader; any other binding,
+ * such as a function parameter, is a different value that only shares the name.
+ */
+const isRequireLoaderReference = (
+  callee: t.Node,
+  state: JavaScriptSemanticAnalysisState,
+  name: string,
+): boolean => {
+  const binding = resolveSemanticBindingState(state, callee, name);
+  if (binding === undefined) {
+    // Node's CommonJS wrapper supplies a lexical `require` parameter. Writes
+    // to globalThis.require do not replace it; retain that possibility for
+    // script/CommonJS source where wrapper mode is possible.
+    if (name === "require" && isScriptProgram(callee, state)) return true;
+    return isUnmodifiedGlobalReference(callee, state, name);
+  }
+  if (
+    name === "require" &&
+    isTopLevelCommonJsVarRequire(binding, callee, state)
+  )
+    return true;
+  const initializer = semanticStableInitializer(binding, state)?.node;
+  const expression =
+    initializer !== undefined && t.isVariableDeclarator(initializer)
+      ? initializer.init
+      : initializer;
+  return (
+    expression !== null &&
+    expression !== undefined &&
+    t.isCallExpression(expression) &&
+    isNodeCreateRequireFactory(expression.callee, state)
+  );
+};
+
+const isNodeCreateRequireFactory = (
+  callee: t.Node,
+  state: JavaScriptSemanticAnalysisState,
+): boolean => {
+  if (!t.isIdentifier(callee)) return false;
+  const binding = resolveSemanticBindingState(state, callee, callee.name);
+  const [origin] = binding?.directOrigins ?? [];
+  return (
+    binding?.runtimeImport === true &&
+    binding.definitions.length === 1 &&
+    binding.directOrigins.length === 1 &&
+    origin !== undefined &&
+    (origin.specifier === "node:module" || origin.specifier === "module") &&
+    origin.importedPath.length === 1 &&
+    origin.importedPath[0] === "createRequire"
+  );
+};
+
+const isScriptProgram = (
+  node: t.Node,
+  state: JavaScriptSemanticAnalysisState,
+): boolean => {
+  let parent = state.parentsByNode.get(node);
+  while (parent !== undefined && !t.isProgram(parent))
+    parent = state.parentsByNode.get(parent);
+  return (
+    parent !== undefined &&
+    (parent.sourceType === "script" || parent.sourceType === "commonjs")
+  );
+};
+
+const isTopLevelCommonJsVarRequire = (
+  binding: NonNullable<ReturnType<typeof resolveSemanticBindingState>>,
+  node: t.Node,
+  state: JavaScriptSemanticAnalysisState,
+): boolean =>
+  binding.name === "require" &&
+  state.scopesById.get(binding.scopeId)?.kind === "program" &&
+  binding.definitions.length > 0 &&
+  binding.definitions.every(({ kind }) => kind === "variable") &&
+  binding.initializers.length === 0 &&
+  isScriptProgram(node, state);
+
 const requireCallSpecifier = (
   node: JavaScriptCallLike,
   name: string,
   moduleRequireName: string | null,
+  isGlobalRequire: boolean,
 ): { readonly specifier: string | undefined } | null => {
-  if (name === "require" || name.endsWith(".require"))
+  // A name alone does not make a loader call: a local binding named `require`
+  // shadows the ambient loader, so only an unshadowed reference to it counts.
+  // The module's own factory require name is a real binding, so it keeps its
+  // own lane below.
+  if (name === "require" && isGlobalRequire)
+    return { specifier: argumentValue(node.arguments[0]) };
+  if (name.endsWith(".require"))
     return { specifier: argumentValue(node.arguments[0]) };
   if (name === "__webpack_require__" || name === moduleRequireName)
     return { specifier: argumentValue(node.arguments[0]) };
