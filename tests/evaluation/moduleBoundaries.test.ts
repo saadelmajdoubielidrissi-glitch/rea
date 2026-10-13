@@ -304,7 +304,7 @@ describe("module import syntax and source discovery", () => {
     await mkdir(join(archive, "src", "domain"), { recursive: true });
     await writeFile(
       join(archive, "src/domain/probe.ts"),
-      'import { createServer } from "../../server/createServer.js";\n',
+      'import { createServer } from "../server/createServer.js";\n',
     );
 
     const result = spawnSync(process.execPath, [verifier], {
