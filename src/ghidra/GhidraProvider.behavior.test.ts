@@ -2038,24 +2038,24 @@ describe("Ghidra analysis seeds and configured language", () => {
   });
 });
 
-describe("Ghidra disabled analyzer options", () => {
-  const configuredProvider = (
-    environment: Record<string, string>,
-    clientFactory?: GhidraProviderClientFactory,
-  ) => {
-    const config = parseConfig({ GHIDRA_INSTALL_DIR: INSTALL, ...environment });
-    if (!config.ok) throw config.error;
-    return new GhidraProvider(
-      config.value,
-      silentLogger,
-      {},
-      installationHost(),
-      clientFactory,
-    );
-  };
+const configuredAnalyzerProvider = (
+  environment: Record<string, string>,
+  clientFactory?: GhidraProviderClientFactory,
+) => {
+  const config = parseConfig({ GHIDRA_INSTALL_DIR: INSTALL, ...environment });
+  if (!config.ok) throw config.error;
+  return new GhidraProvider(
+    config.value,
+    silentLogger,
+    {},
+    installationHost(),
+    clientFactory,
+  );
+};
 
+describe("Ghidra disabled analyzer options", () => {
   it("records the configured analyzer options in the analysis profile", async () => {
-    const ghidra = configuredProvider({
+    const ghidra = configuredAnalyzerProvider({
       REA_GHIDRA_DISABLED_ANALYZERS:
         "Objective-C Message Analyzer,Decompiler Switch Analysis",
     });
@@ -2066,19 +2066,32 @@ describe("Ghidra disabled analyzer options", () => {
       throw new Error("expected a bound Ghidra profile");
     expect(resolved.value.profile.parameters).toMatchObject({
       analyzer_preset:
-        "ghidra-default+disabled:Objective-C Message Analyzer,Decompiler Switch Analysis",
+        "ghidra-default+disabled:Decompiler Switch Analysis,Objective-C Message Analyzer",
       analysis_options: {
         disabled_analyzers: [
-          "Objective-C Message Analyzer",
           "Decompiler Switch Analysis",
+          "Objective-C Message Analyzer",
         ],
       },
     });
   });
 
+  it("keeps profile commitments identical for equivalent analyzer settings", async () => {
+    const target = executableTarget("elf", "x86_64");
+    const first = await configuredAnalyzerProvider({
+      REA_GHIDRA_DISABLED_ANALYZERS: "B,A,B",
+    }).resolveAnalysisProfile(target);
+    const second = await configuredAnalyzerProvider({
+      REA_GHIDRA_DISABLED_ANALYZERS: "A,B",
+    }).resolveAnalysisProfile(target);
+    if (!first.ok || !second.ok || first.value.profile === null)
+      throw new Error("expected bound profiles");
+    expect(second.value.profile).toEqual(first.value.profile);
+  });
+
   it("hands the configured analyzers to the launcher for a matching profile", async () => {
     const launchers: GhidraHeadlessLauncher[] = [];
-    const ghidra = configuredProvider(
+    const ghidra = configuredAnalyzerProvider(
       { REA_GHIDRA_DISABLED_ANALYZERS: "Objective-C Message Analyzer" },
       (options) => {
         launchers.push(options.launcher as GhidraHeadlessLauncher);
@@ -2104,7 +2117,7 @@ describe("Ghidra disabled analyzer options", () => {
 
   it("binds analyzer overrides and raw import settings in one profile", async () => {
     const launchers: GhidraHeadlessLauncher[] = [];
-    const ghidra = configuredProvider(
+    const ghidra = configuredAnalyzerProvider(
       { REA_GHIDRA_DISABLED_ANALYZERS: "Decompiler Switch Analysis" },
       (options) => {
         launchers.push(options.launcher as GhidraHeadlessLauncher);
@@ -2149,11 +2162,11 @@ describe("Ghidra disabled analyzer options", () => {
 
   it("refuses a profile resolved without or with other analyzer options", async () => {
     const target = executableTarget("elf", "x86_64");
-    const plainProvider = configuredProvider({});
+    const plainProvider = configuredAnalyzerProvider({});
     const plain = await plainProvider.resolveAnalysisProfile(target);
     if (!plain.ok || plain.value.profile === null)
       throw new Error("expected profile");
-    const configuredProvider2 = configuredProvider({
+    const configuredProvider2 = configuredAnalyzerProvider({
       REA_GHIDRA_DISABLED_ANALYZERS: "Objective-C Message Analyzer",
     });
     const configured = await configuredProvider2.resolveAnalysisProfile(target);
@@ -2171,7 +2184,7 @@ describe("Ghidra disabled analyzer options", () => {
       ],
     ] as const) {
       let starts = 0;
-      const client = configuredProvider(environment, () => ({
+      const client = configuredAnalyzerProvider(environment, () => ({
         start: () => {
           starts++;
           return Promise.resolve(ok(sessionInfo()));
