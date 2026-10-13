@@ -42,6 +42,15 @@ import {
 type PropertyPath = JavaScriptSemanticPropertyPath;
 type ValueEffect = "write" | "escape";
 
+/** Alias-state capture identity: binding id plus origin and owner node spans. */
+type SemanticMutationCapture = readonly [
+  string,
+  number | null | undefined,
+  number | null | undefined,
+  number | null | undefined,
+  number | null | undefined,
+];
+
 /** Preserve uncertainty from property writes and references exposed to calls, yielding during traversal and fixpoint iteration. */
 export function* collectSemanticMemberMutationsSteps(
   program: t.Program,
@@ -117,13 +126,9 @@ export function* collectSemanticMemberMutationsSteps(
     // Consecutive work items usually share one capture (an expansion pushes
     // several items with the same origin), and every item re-derives its key
     // before any dedup check, so keep the last encoding for reuse.
-    let recentCapture:
-      | readonly (string | number | null | undefined)[]
-      | undefined;
+    let recentCapture: SemanticMutationCapture | undefined;
     let recentCaptureKey = "";
-    const captureKeyOf = (
-      capture: readonly (string | number | null | undefined)[],
-    ): string => {
+    const captureKeyOf = (capture: SemanticMutationCapture): string => {
       if (
         recentCapture !== undefined &&
         recentCapture[0] === capture[0] &&
@@ -165,7 +170,7 @@ export function* collectSemanticMemberMutationsSteps(
         // An alias restored from a saved reference can revisit the same binding
         // at an earlier capture or a shorter getter-receiver path. Only a
         // repeated capture and path closes a cycle.
-        const capture = [
+        const capture: SemanticMutationCapture = [
           binding.bindingId,
           current.originAt?.start,
           current.originAt?.end,
@@ -175,7 +180,7 @@ export function* collectSemanticMemberMutationsSteps(
         // The capture key is the JSON array prefix of the lifetime key, so the
         // lifetime is derived by concatenation instead of re-encoding the
         // capture plus path on every work-list item. Undefined capture slots
-        // are dropped by JSON.stringify on both sides, keeping the keys equal.
+        // become null in JSON.stringify on both sides, keeping the keys equal.
         const captureKey = captureKeyOf(capture);
         const capturePrefix = captureKey.slice(0, -1);
         const lifetime = `${capturePrefix},${JSON.stringify(current.path)}]`;
