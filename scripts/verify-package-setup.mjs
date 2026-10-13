@@ -415,7 +415,7 @@ const verifySetupApply = async ({
   };
 };
 
-const assertClientConfig = async (cli, configPath) => {
+const assertClientConfig = async (cli, configPath, original) => {
   const config = json(await readFile(configPath, "utf8"));
   if (
     config.existing !== true ||
@@ -423,9 +423,7 @@ const assertClientConfig = async (cli, configPath) => {
     JSON.stringify(config.mcpServers?.rea?.args) !== JSON.stringify(["mcp"])
   )
     throw new Error("packaged client readback failed");
-  if (
-    !(await readFile(`${configPath}.rea.backup`, "utf8")).includes("existing")
-  )
+  if ((await readFile(`${configPath}.rea.backup`, "utf8")) !== original)
     throw new Error("packaged client backup failed");
 };
 
@@ -459,6 +457,7 @@ const assertCodexSymlink = async ({
   codexConfig,
   cursorConfig,
   codexTarget,
+  cursorOriginal,
 }) => {
   const codex = await readFile(codexTarget, "utf8");
   if (
@@ -469,8 +468,7 @@ const assertCodexSymlink = async ({
     !codex.includes("startup_timeout_sec = 30") ||
     !codex.startsWith(CODEX_ORIGINAL) ||
     (await readFile(`${codexConfig}.rea.backup`, "utf8")) !== CODEX_ORIGINAL ||
-    (await readFile(`${cursorConfig}.rea.backup`, "utf8")) !==
-      '{"existing":true}\n'
+    (await readFile(`${cursorConfig}.rea.backup`, "utf8")) !== cursorOriginal
   )
     throw new Error("packaged setup did not preserve config symlinks");
 };
@@ -535,14 +533,17 @@ const verifyConfigReadback = async ({
   siblingSkillPath,
   opencodeConfig,
   opencodeOriginal,
+  claudeOriginal,
+  cursorOriginal,
 }) => {
-  await assertClientConfig(cli, claudeConfig);
-  await assertClientConfig(cli, cursorConfig);
+  await assertClientConfig(cli, claudeConfig, claudeOriginal);
+  await assertClientConfig(cli, cursorConfig, cursorOriginal);
   await assertCodexSymlink({
     cli,
     codexConfig,
     cursorConfig,
     codexTarget,
+    cursorOriginal,
   });
   await assertSkill({ skillPath, siblingSkillPath, root });
   await assertOpenCodeConfig({
@@ -638,6 +639,7 @@ const verifyUninstall = async ({
   cursorTarget,
   codexTarget,
   opencodeConfig,
+  cursorOriginal,
 }) => {
   const uninstallExecution = await runWithStatus(
     cli,
@@ -678,8 +680,7 @@ const verifyUninstall = async ({
     ) ||
     (await readFile(`${opencodeConfig}.rea.backup`, "utf8")) !==
       OPENCODE_ORIGINAL ||
-    (await readFile(`${cursorConfig}.rea.backup`, "utf8")) !==
-      '{"existing":true}\n' ||
+    (await readFile(`${cursorConfig}.rea.backup`, "utf8")) !== cursorOriginal ||
     (await readFile(`${codexConfig}.rea.backup`, "utf8")) !== CODEX_ORIGINAL
   )
     throw new Error(
@@ -695,8 +696,10 @@ export async function verifyPackageSetup({
   home,
   npxLog,
   claudeConfig,
+  claudeOriginal,
   codexConfig,
   cursorConfig,
+  cursorOriginal,
   codexTarget,
   cursorTarget,
   supportedSetupHost,
@@ -773,6 +776,8 @@ export async function verifyPackageSetup({
       siblingSkillPath,
       opencodeConfig,
       opencodeOriginal: OPENCODE_ORIGINAL,
+      claudeOriginal,
+      cursorOriginal,
     });
     await verifySetupFailureRecovery({
       cli,
@@ -790,6 +795,7 @@ export async function verifyPackageSetup({
       cursorTarget,
       codexTarget,
       opencodeConfig,
+      cursorOriginal,
     });
   } else if (
     apply.first.status !== "needs_human" ||

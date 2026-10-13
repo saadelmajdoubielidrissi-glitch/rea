@@ -2,6 +2,9 @@ import { chmod, mkdir, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { supportedClients } from "../dist/application/SupportedClients.js";
 
+const CLAUDE_CONFIG_ORIGINAL = '{"existing":true}\n';
+const CURSOR_CONFIG_ORIGINAL = '{"existing":true}\n';
+
 /** Create an isolated prefix, fake PATH, client configs, and environment. */
 export async function verifyPackageEnvironment({
   root,
@@ -66,9 +69,9 @@ export async function verifyPackageEnvironment({
   const codexTarget = join(home, "managed-codex.toml");
   const cursorConfig = join(cursorDir, "mcp.json");
   const cursorTarget = join(home, "managed-cursor.json");
-  await writeFile(claudeConfig, '{"existing":true}\n');
+  await writeFile(claudeConfig, CLAUDE_CONFIG_ORIGINAL);
   await writeFile(codexTarget, 'model = "gpt-5"\n');
-  await writeFile(cursorTarget, '{"existing":true}\n');
+  await writeFile(cursorTarget, CURSOR_CONFIG_ORIGINAL);
   await symlink(codexTarget, codexConfig);
   await symlink(cursorTarget, cursorConfig);
   const environment = {
@@ -104,10 +107,12 @@ export async function verifyPackageEnvironment({
     home,
     npxLog,
     claudeConfig,
+    claudeOriginal: CLAUDE_CONFIG_ORIGINAL,
     codexConfig,
     codexTarget,
     cursorConfig,
     cursorTarget,
+    cursorOriginal: CURSOR_CONFIG_ORIGINAL,
     environment,
   };
 }
